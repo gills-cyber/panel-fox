@@ -9,13 +9,14 @@ const TooltipTrigger = TooltipPrimitive.Trigger;
 const TooltipContent = React.forwardRef<
   React.ComponentRef<typeof TooltipPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
->(({ className, sideOffset = 8, ...props }, ref) => (
+>(({ className, sideOffset = 6, ...props }, ref) => (
   <TooltipPrimitive.Portal>
     <TooltipPrimitive.Content
       ref={ref}
       sideOffset={sideOffset}
+      collisionPadding={8}
       className={cn(
-        "z-50 overflow-hidden rounded-md bg-ink px-2.5 py-1.5 text-xs text-accent-fg shadow-md",
+        "koma-tip z-[130] rounded-[6px] bg-surface/95 px-2 py-1 text-[11px] font-medium leading-4 text-ink backdrop-blur-xl",
         className,
       )}
       {...props}

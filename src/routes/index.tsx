@@ -7,7 +7,7 @@ export const Route = createFileRoute("/")({ component: Home });
 
 function Home() {
   return (
-    <TooltipProvider delayDuration={400} disableHoverableContent skipDelayDuration={0}>
+    <TooltipProvider delayDuration={700} disableHoverableContent skipDelayDuration={300}>
       <Studio />
       <Toaster
         position="top-center"

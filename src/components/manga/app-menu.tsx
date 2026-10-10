@@ -9,22 +9,13 @@ import {
 } from "react";
 import { Check } from "lucide-react";
 import { cn, prefersReducedMotion } from "@/lib/utils";
-import { combo, isApplePlatform } from "@/lib/manga/hotkeys";
+import { combo, useApplePlatform } from "@/lib/manga/hotkeys";
 import { useStudio } from "@/lib/manga/store";
 import { insertTitle } from "@/lib/manga/actions";
 import { pageOverlays, isDialogue } from "@/lib/manga/lettering";
 
 type MenuId = "file" | "edit" | "insert" | "arrange" | "view" | null;
 const MENU_ORDER: Exclude<MenuId, null>[] = ["file", "edit", "insert", "arrange", "view"];
-
-/** Resolved after mount so the server and the first client render agree. */
-function useApplePlatform() {
-  const [apple, setApple] = useState(false);
-  useEffect(() => {
-    setApple(isApplePlatform());
-  }, []);
-  return apple;
-}
 
 function Shortcut({ keys }: { keys: string }) {
   return <span className="koma-keys ml-8 text-[13px] tabular-nums opacity-55">{keys}</span>;

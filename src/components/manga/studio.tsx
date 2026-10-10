@@ -37,6 +37,11 @@ import {
   Redo2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Slider } from "@/components/ui/slider";
 import { SpreadView } from "@/components/manga/spread-view";
 import { PageThumb } from "@/components/manga/page-thumb";
@@ -92,7 +97,13 @@ import {
   panelIdAtPoint,
   uploadImageFiles,
 } from "@/lib/manga/drop";
-import { handleStudioHotkey, isTypingTarget, modKey } from "@/lib/manga/hotkeys";
+import {
+  combo,
+  handleStudioHotkey,
+  isTypingTarget,
+  modKey,
+  useApplePlatform,
+} from "@/lib/manga/hotkeys";
 import {
   bindProjectUi,
   downloadProjectFile,
@@ -185,6 +196,9 @@ export function Studio() {
   const chapters = useStudio((s) => s.chapters);
   const coverFirst = useStudio((s) => s.book.coverFirst);
   const readMode = useStudio((s) => s.readMode);
+  const apple = useApplePlatform();
+  const k = (key: string, m: Parameters<typeof combo>[1] = {}) =>
+    combo(key, m, apple);
   const canUndo = useStudio((s) => s.past.length > 0);
   const canRedo = useStudio((s) => s.future.length > 0);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -610,7 +624,7 @@ export function Studio() {
           <button
             type="button"
             data-koma="project-chip"
-            title="Open project library"
+            aria-label="Open project library"
             onClick={() => setProjectsOpen(true)}
             className="flex min-w-0 max-w-[9rem] items-center gap-1.5 rounded-[6px] px-1.5 py-1 text-left hover:bg-ink/6 lg:max-w-[13rem]"
           >
@@ -634,6 +648,7 @@ export function Studio() {
           <ToolGroup>
             <ToolTipBtn
               label="Undo"
+              keys={k("Z", { cmd: true })}
               koma="undo"
               disabled={!canUndo}
               onClick={() => useStudio.getState().undo()}
@@ -642,6 +657,7 @@ export function Studio() {
             </ToolTipBtn>
             <ToolTipBtn
               label="Redo"
+              keys={k("Z", { cmd: true, shift: true })}
               koma="redo"
               disabled={!canRedo}
               onClick={() => useStudio.getState().redo()}
@@ -680,6 +696,7 @@ export function Studio() {
             <ToolTipBtn
               label="Speech bubble"
               caption="Speech"
+              keys="T"
               onClick={() => useStudio.getState().addOverlay("speech")}
             >
               <MessageCircle />
@@ -701,6 +718,7 @@ export function Studio() {
             <ToolTipBtn
               label="Title"
               caption="Title"
+              keys={k("T", { shift: true })}
               onClick={() => insertTitle()}
             >
               <Type />
@@ -749,6 +767,7 @@ export function Studio() {
           <div className="relative flex items-center">
             <ToolTipBtn
               label="Zoom out"
+              keys={k("-", { cmd: true })}
               koma="zoom-out"
               className="hidden lg:flex md:min-w-8 md:px-1"
               onClick={() => setZoom((z) => stepZoom(z, -1))}
@@ -768,6 +787,7 @@ export function Studio() {
             </button>
             <ToolTipBtn
               label="Zoom in"
+              keys={k("+", { cmd: true })}
               koma="zoom-in"
               className="hidden lg:flex md:min-w-8 md:px-1"
               onClick={() => setZoom((z) => stepZoom(z, 1))}
@@ -807,6 +827,7 @@ export function Studio() {
           <ToolTipBtn
             label="Read"
             caption="Read"
+            keys="R"
             koma="read-open"
             className="hidden md:flex"
             active={readMode}
@@ -819,6 +840,7 @@ export function Studio() {
           <ToolTipBtn
             label="Export"
             caption="Export"
+            keys={k("E", { cmd: true })}
             onClick={() => setExportOpen(true)}
           >
             <Share />
@@ -1487,6 +1509,7 @@ function ToolSep({ className }: { className?: string }) {
 function ToolTipBtn({
   label,
   caption,
+  keys,
   active,
   ariaPressed,
   onClick,
@@ -1498,6 +1521,7 @@ function ToolTipBtn({
 }: {
   label: string;
   caption?: string;
+  keys?: string;
   active?: boolean;
   ariaPressed?: boolean;
   onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
@@ -1508,32 +1532,39 @@ function ToolTipBtn({
   disabled?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      aria-pressed={ariaPressed}
-      data-koma={koma}
-      data-koma-menu-btn={menu ? "" : undefined}
-      disabled={disabled}
-      aria-disabled={disabled || undefined}
-      onPointerDown={(e) => e.stopPropagation()}
-      onClick={onClick}
-      className={cn(
-        "koma-press flex size-11 shrink-0 flex-col items-center justify-center gap-[3px] rounded-[7px] text-ink-soft transition-[background-color,color] duration-[var(--motion-quick)] ease-[var(--ease-out)] [&>svg]:size-5 [&>svg]:[stroke-width:1.75] md:h-9 md:w-auto md:min-w-9 md:px-1.5 md:[&>svg]:size-[18px] xl:h-10 xl:px-2",
-        caption && "xl:min-w-[3.25rem]",
-        active ? "bg-ink/10 text-ink" : "hover:bg-ink/6 hover:text-ink",
-        disabled && "opacity-35 hover:bg-transparent hover:text-ink-soft",
-        className,
-      )}
-    >
-      {children}
-      {caption ? (
-        <span className="hidden text-[11px] font-medium leading-none xl:block">
-          {caption}
-        </span>
-      ) : null}
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          aria-pressed={ariaPressed}
+          data-koma={koma}
+          data-koma-menu-btn={menu ? "" : undefined}
+          disabled={disabled}
+          aria-disabled={disabled || undefined}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={onClick}
+          className={cn(
+            "koma-press flex size-11 shrink-0 flex-col items-center justify-center gap-[3px] rounded-[7px] text-ink-soft transition-[background-color,color] duration-[var(--motion-quick)] ease-[var(--ease-out)] [&>svg]:size-5 [&>svg]:[stroke-width:1.75] md:h-9 md:w-auto md:min-w-9 md:px-1.5 md:[&>svg]:size-[18px] xl:h-10 xl:px-2",
+            caption && "xl:min-w-[3.25rem]",
+            active ? "bg-ink/10 text-ink" : "hover:bg-ink/6 hover:text-ink",
+            disabled && "opacity-35 hover:bg-transparent hover:text-ink-soft",
+            className,
+          )}
+        >
+          {children}
+          {caption ? (
+            <span className="hidden text-[11px] font-medium leading-none xl:block">
+              {caption}
+            </span>
+          ) : null}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        {label}
+        {keys ? <kbd className="koma-kbd ml-2">{keys}</kbd> : null}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

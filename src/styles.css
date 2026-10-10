@@ -442,6 +442,32 @@ img {
   background: rgb(255 255 255 / 0.14);
 }
 
+/* NSToolbar tooltips: light material, 11pt, quick in, instant between siblings. */
+.koma-tip {
+  box-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 0.18),
+    0 2px 8px rgb(0 0 0 / 0.14);
+  transform-origin: var(--radix-tooltip-content-transform-origin);
+  animation: koma-tip-in 150ms var(--ease-out) both;
+}
+[data-theme="dark"] .koma-tip {
+  box-shadow:
+    0 0 0 0.5px rgb(255 255 255 / 0.16),
+    0 2px 8px rgb(0 0 0 / 0.4);
+}
+.koma-tip[data-state="instant-open"] {
+  animation: none;
+}
+.koma-tip[data-state="closed"] {
+  animation: koma-fade-out 100ms var(--ease-out) forwards;
+}
+.koma-kbd {
+  font: 11px/1 var(--font-sans);
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-muted);
+}
+
 /* Press feedback shared by toolbar items: a quick dip, a springy release. */
 .koma-press {
   transition:

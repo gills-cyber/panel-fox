@@ -1,7 +1,7 @@
 import { useStudio } from "./store";
 import { insertTitle } from "./actions";
 import { canRotate, wrapDeg, isDialogue, scaleOverlayBy } from "./lettering";
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { requestOpenProjects, requestSave, requestSaveAs } from "./project";
 
 export function isTypingTarget(el: EventTarget | null) {
@@ -39,7 +39,16 @@ export function isIosDevice() {
   return navigator.platform === "MacIntel" && (navigator.maxTouchPoints ?? 0) > 1;
 }
 
-/** Module-load snapshot — display glyphs should use `useShortcutGlyphs` to avoid SSR mismatch. */
+/** Resolved after mount so the server and the first client render agree. */
+export function useApplePlatform() {
+  const [apple, setApple] = useState(false);
+  useEffect(() => {
+    setApple(isApplePlatform());
+  }, []);
+  return apple;
+}
+
+/** Module-load snapshot — display glyphs should use `useApplePlatform` to avoid SSR mismatch. */
 export const isAppleMod = isApplePlatform();
 export const modSymbol = isAppleMod ? "⌘" : "Ctrl";
 export const altSymbol = isAppleMod ? "⌥" : "Alt";
@@ -57,7 +66,7 @@ export function combo(
   if (apple) {
     return `${m.ctrl ? "⌃" : ""}${m.alt ? "⌥" : ""}${m.shift ? "⇧" : ""}${m.cmd ? "⌘" : ""}${key}`;
   }
-  return [m.ctrl && "Ctrl", m.alt && "Alt", m.shift && "Shift", m.cmd && "Ctrl", key]
+  return [(m.ctrl || m.cmd) && "Ctrl", m.alt && "Alt", m.shift && "Shift", key]
     .filter(Boolean)
     .join("+");
 }
