@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 @theme {
   --color-bg: #c5c5cb;
   --color-surface: #ffffff;
@@ -51,6 +53,22 @@
 
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-spring-pop: linear(
+    0,
+    0.2178 2.1%,
+    0.5438 5.4%,
+    0.8065 8.9%,
+    0.9814 12.9%,
+    1.0706 17.6%,
+    1.1008 22.6%,
+    1.0864 27.9%,
+    1.0533 33.6%,
+    1.0236 39.4%,
+    1.0054 47.2%,
+    0.9988 56.5%,
+    0.9983 68.7%,
+    1
+  );
   --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
   --motion-quick: 150ms;
   --motion-fast: 250ms;
@@ -428,7 +446,7 @@ img {
   width: 1px;
   height: 1.15rem;
   margin: 0 0.35rem;
-  background: rgb(0 0 0 / 0.12);
+  background: color-mix(in srgb, var(--color-ink) 12%, transparent);
 }
 
 .koma-seg {
@@ -492,7 +510,7 @@ img {
   border-radius: 1px;
   background: var(--color-surface);
   box-shadow: 0 0 0 2px var(--color-accent);
-  animation: koma-knob-in var(--motion-quick) var(--ease-spring) backwards;
+  animation: koma-knob-in var(--motion-quick) var(--ease-spring-pop) backwards;
   transition: scale var(--motion-quick) var(--ease-out);
 }
 .koma-handle:hover .koma-handle-knob {
@@ -686,7 +704,7 @@ img {
   box-shadow: var(--shadow-float);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
-  animation: koma-pop-in var(--motion-fast) var(--ease-spring) backwards;
+  animation: koma-pop-in var(--motion-fast) var(--ease-spring-pop) backwards;
 }
 .koma-ov-bar button {
   display: inline-flex;
@@ -815,7 +833,7 @@ img {
   box-shadow: var(--shadow-float);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
-  animation: koma-pop-in var(--motion-fast) var(--ease-spring) backwards;
+  animation: koma-pop-in var(--motion-fast) var(--ease-spring-pop) backwards;
 }
 
 .koma-style-grid {
@@ -1021,6 +1039,12 @@ img {
   }
 }
 
+@supports not (animation-timing-function: linear(0, 1)) {
+  :root {
+    --ease-spring-pop: cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+}
+
 @keyframes koma-pop-in {
   from {
     opacity: 0;
@@ -1081,6 +1105,29 @@ img {
   }
 }
 
+@keyframes koma-pop-out {
+  to {
+    opacity: 0;
+    scale: 0.98;
+  }
+}
+@keyframes koma-tip-in {
+  from {
+    opacity: 0;
+    translate: 0 -2px;
+  }
+}
+@keyframes koma-hud-in {
+  from {
+    opacity: 0;
+    translate: 0 12px;
+    scale: 0.96;
+  }
+}
+.koma-fade-in {
+  animation: koma-fade-in 100ms var(--ease-out) both;
+}
+
 [data-koma-menu] {
   animation: koma-fade-in 100ms var(--ease-out) backwards;
 }
@@ -1094,7 +1141,7 @@ img {
 
 [data-koma-dialog],
 [data-koma-popover] {
-  animation: koma-pop-in var(--motion-fast) var(--ease-spring) backwards;
+  animation: koma-pop-in var(--motion-fast) var(--ease-spring-pop) backwards;
   transform-origin: var(--koma-origin, top left);
 }
 
@@ -1103,17 +1150,14 @@ img {
 }
 
 .koma-thumb {
-  animation: koma-thumb-in var(--motion-enter) var(--ease-spring) both;
-  animation-delay: calc(min(var(--koma-thumb-i, 1), 8) * 28ms);
+  animation: koma-thumb-in 200ms var(--ease-out) both;
+  animation-delay: calc(min(var(--koma-thumb-i, 1), 4) * 24ms);
 }
 .koma-thumb-sheet {
   transform-origin: top center;
   transition:
     transform var(--motion-fast) var(--ease-spring),
     box-shadow var(--motion-fast) var(--ease-out);
-}
-.koma-thumb:hover .koma-thumb-sheet {
-  transform: translateY(-2px) scale(1.03);
 }
 .koma-thumb:active .koma-thumb-sheet {
   transform: scale(0.96);
@@ -1159,7 +1203,7 @@ img {
 .koma-page-insert-mark {
   border-radius: 999px;
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 50%, transparent);
-  animation: koma-gap-in 0.18s var(--ease-spring) both;
+  animation: koma-gap-in 0.18s var(--ease-spring-pop) both;
 }
 /* NSMenu highlights snap; nothing eases or shrinks on press. */
 .koma-menu-item {
@@ -1174,13 +1218,11 @@ img {
 @keyframes koma-thumb-in {
   from {
     opacity: 0;
-    transform: translateY(10px) scale(0.96);
-    filter: blur(4px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
     transform: none;
-    filter: blur(0);
   }
 }
 
@@ -1471,8 +1513,17 @@ img {
   [data-koma-menu][data-state="closing"],
   [data-koma-menu] [data-flash],
   [data-koma-popover],
-  [data-koma-dialog] {
+  [data-koma-dialog],
+  [data-koma-dialog][data-state="closed"],
+  .koma-tip,
+  .koma-toast,
+  .koma-reader-host,
+  .koma-reader-sheet.is-out,
+  .koma-template-card {
     animation: none !important;
+  }
+  .koma-reader-sheet.is-out {
+    display: none;
   }
   .koma-thumb-sheet,
   .koma-page-zoom,

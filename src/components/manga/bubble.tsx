@@ -25,7 +25,7 @@ import { useStudio } from "@/lib/manga/store";
 import { fitLetterBox, letterMinBox } from "@/lib/manga/fit";
 import { inkBody, inkPuff, inkSeed, inkTail, type InkBox } from "@/lib/manga/ink";
 import { pageAspect } from "@/lib/manga/paper";
-import { cn, clamp } from "@/lib/utils";
+import { cn, clamp, prefersReducedMotion } from "@/lib/utils";
 import { FontSizeControl } from "@/components/manga/font-size";
 import { ContextMenu } from "@/components/manga/context-menu";
 import { combo } from "@/lib/manga/hotkeys";
@@ -88,11 +88,6 @@ function overlayPopStyle(overlay: Overlay): CSSProperties {
     return { left: "100%", top: 0, transform: "translate(8px, 48px)" };
   }
   return { left: 0, top: 0, transform: "translate(calc(-100% - 8px), 48px)" };
-}
-
-function prefersReducedMotion() {
-  if (typeof window === "undefined" || !window.matchMedia) return false;
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 /** Apple-like ease-out with a whisper of overshoot. */

@@ -1061,7 +1061,7 @@ export function Studio() {
         <main
           ref={stageRef}
           data-koma="page-stage"
-          className="relative min-h-0 flex-1 overflow-auto bg-bg px-4 py-5 sm:px-10 sm:py-10"
+          className="relative isolate min-h-0 flex-1 overflow-auto overscroll-contain bg-bg px-4 py-5 sm:px-10 sm:py-10"
         >
           <SpreadView
             onPickFile={openPicker}

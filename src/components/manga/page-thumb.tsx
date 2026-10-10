@@ -239,7 +239,7 @@ function PageThumbInner({
         </div>
         <span
           className={cn(
-            "koma-thumb-label text-xs tabular-nums",
+            "koma-thumb-label text-[11px] tabular-nums",
             selected ? "font-medium text-ink" : "text-muted",
           )}
         >
