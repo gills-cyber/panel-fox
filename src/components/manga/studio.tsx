@@ -174,6 +174,8 @@ export function Studio() {
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [newOpen, setNewOpen] = useState<"manga" | "brochure" | null>(null);
+  // The reader stays mounted a beat after read mode ends, for its fade-out.
+  const [readerShown, setReaderShown] = useState(() => useStudio.getState().readMode);
   const [ghost, setGhost] = useState<{
     src: string;
     x: number;
@@ -573,6 +575,15 @@ export function Studio() {
     } — PanelFox`;
   }, [projectName, edited]);
 
+  useEffect(() => {
+    if (readMode) {
+      setReaderShown(true);
+      return;
+    }
+    const t = window.setTimeout(() => setReaderShown(false), prefersReducedMotion() ? 0 : 260);
+    return () => window.clearTimeout(t);
+  }, [readMode]);
+
   function handleSaveAs() {
     setSaveAsCopy(true);
     setSaveOpen(true);
@@ -634,45 +645,14 @@ export function Studio() {
   const pageIndex = pages.findIndex((p) => p.id === page.id) + 1;
   const zoomLabel = formatZoom(zoom);
 
-  if (readMode) {
-    return (
-      <div className="flex h-dvh min-h-0 flex-col bg-ink text-surface">
-        <Reader onLibrary={() => setProjectsOpen(true)} />
-        {newProjectDialog}
-        <OpenProjectDialog
-          open={projectsOpen}
-          onClose={() => setProjectsOpen(false)}
-          onOpenFile={() => projectFileRef.current?.click()}
-          onNew={handleNew}
-          onSaveAs={() => {
-            setProjectsOpen(false);
-            handleSaveAs();
-          }}
-          onSaveFirst={() => {
-            setProjectsOpen(false);
-            setSaveAsCopy(false);
-            setSaveOpen(true);
-          }}
-        />
-        <SaveAsDialog
-          open={saveOpen}
-          asCopy={saveAsCopy}
-          onClose={() => setSaveOpen(false)}
-        />
-        <input
-          ref={projectFileRef}
-          type="file"
-          accept=".koma,application/x-koma,application/json"
-          className="koma-file"
-          data-koma="project-file"
-          onChange={onProjectFile}
-        />
-      </div>
-    );
-  }
-
   return (
-    <div className="flex h-dvh min-h-0 flex-col bg-chrome text-ink">
+    <>
+    <div
+      className="flex h-dvh min-h-0 flex-col bg-chrome text-ink"
+      data-koma="editor"
+      inert={readMode || undefined}
+      aria-hidden={readMode || undefined}
+    >
       <input
         id="koma-file"
         ref={fileRef}
@@ -1576,6 +1556,17 @@ export function Studio() {
           />
         </>
       ) : null}
+    </div>
+
+      {readerShown ? (
+        <div
+          className="koma-reader-host fixed inset-0 z-[100]"
+          data-koma="reader-host"
+          data-state={readMode ? "open" : "closed"}
+        >
+          <Reader onLibrary={() => setProjectsOpen(true)} />
+        </div>
+      ) : null}
 
       <SaveAsDialog
         open={saveOpen}
@@ -1642,7 +1633,7 @@ export function Studio() {
           },
         }}
       />
-    </div>
+    </>
   );
 }
 

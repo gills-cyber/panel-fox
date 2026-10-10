@@ -1371,6 +1371,62 @@ img {
   }
 }
 
+/* Read mode: the reader rises over the editor and settles, like entering full screen. */
+.koma-reader-host {
+  background: #0c0c0e;
+}
+.koma-reader-host[data-state="open"] {
+  animation: koma-reader-in 320ms var(--ease-smooth-out) both;
+}
+.koma-reader-host[data-state="closed"] {
+  animation: koma-reader-out 240ms var(--ease-out) forwards;
+  pointer-events: none;
+}
+@keyframes koma-reader-in {
+  from {
+    opacity: 0;
+    transform: scale(1.03);
+  }
+}
+@keyframes koma-reader-out {
+  to {
+    opacity: 0;
+    transform: scale(1.02);
+  }
+}
+/* A page turn is a push: the old sheet leaves as the new one arrives. */
+.koma-reader-leave {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  pointer-events: none;
+  animation: koma-reader-turn-out var(--motion-enter) var(--ease-spring) forwards;
+}
+.koma-reader-leave .koma-reader-sheet {
+  animation: none;
+}
+@keyframes koma-reader-turn-out {
+  to {
+    opacity: 0;
+    transform: translateX(calc(-1 * var(--turn, 14px)));
+    filter: blur(3px);
+  }
+}
+/* Zoom steps ease; a pinch or wheel sets the size directly. */
+[data-koma="reader-stage"][data-zoom-anim] {
+  transition: transform var(--motion-medium) var(--ease-spring);
+}
+[data-koma="reader-stage"][data-zoom-anim] .koma-reader-sheet .paper-sheet {
+  transition:
+    width var(--motion-medium) var(--ease-spring),
+    height var(--motion-medium) var(--ease-spring);
+}
+[data-koma="reader-stage"][data-zoom-anim] .koma-reader-webtoon-page {
+  transition: width var(--motion-medium) var(--ease-spring);
+}
+
 /* Template chooser: cards cascade in, the way Keynote's chooser fills. */
 .koma-template-card {
   animation: koma-thumb-in 220ms var(--ease-out) both;
@@ -1835,6 +1891,8 @@ img {
   .koma-tip,
   .koma-toast,
   .koma-reader-host,
+  .koma-reader-host[data-state="closed"],
+  .koma-reader-leave,
   .koma-reader-sheet.is-out,
   .koma-template-card,
   .koma-edited,
@@ -1844,8 +1902,14 @@ img {
   .koma-palette-scrim {
     animation: none !important;
   }
-  .koma-reader-sheet.is-out {
+  .koma-reader-sheet.is-out,
+  .koma-reader-leave {
     display: none;
+  }
+  [data-koma="reader-stage"][data-zoom-anim],
+  [data-koma="reader-stage"][data-zoom-anim] .koma-reader-sheet .paper-sheet,
+  [data-koma="reader-stage"][data-zoom-anim] .koma-reader-webtoon-page {
+    transition: none !important;
   }
   .koma-thumb-sheet,
   .koma-page-zoom,

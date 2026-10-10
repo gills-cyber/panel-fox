@@ -18,7 +18,7 @@ import {
   sanitizeChapters,
 } from "@/lib/manga/book";
 import { useStudio } from "@/lib/manga/store";
-import { cn, clamp } from "@/lib/utils";
+import { cn, clamp, prefersReducedMotion } from "@/lib/utils";
 
 const HINT_KEY = "koma-reader-hint";
 const READ_ZOOM_MIN = 1;
@@ -63,6 +63,12 @@ export function Reader({ onLibrary }: { onLibrary: () => void }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [readZoom, setReadZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  // A zoom step eases; a wheel or pinch tracks the hand and must not.
+  const [zoomAnim, setZoomAnim] = useState(false);
+  const zoomAnimTimer = useRef(0);
+  // The sheet on its way out during a page turn (the push).
+  const [leaving, setLeaving] = useState<{ ids: string[]; dir: 1 | -1; stamp: number } | null>(null);
+  const leaveTimer = useRef(0);
   const readZoomRef = useRef(1);
   const panRef = useRef({ x: 0, y: 0 });
   readZoomRef.current = readZoom;
@@ -120,9 +126,22 @@ export function Reader({ onLibrary }: { onLibrary: () => void }) {
     setPan(limited);
   }
 
+  function easeZoom(fn: () => void) {
+    window.clearTimeout(zoomAnimTimer.current);
+    setZoomAnim(true);
+    fn();
+    zoomAnimTimer.current = window.setTimeout(() => setZoomAnim(false), 420);
+  }
+
+  function trackZoom() {
+    if (!zoomAnim) return;
+    window.clearTimeout(zoomAnimTimer.current);
+    setZoomAnim(false);
+  }
+
   function stepReadZoom(dir: 1 | -1) {
     const factor = dir > 0 ? 1.25 : 0.8;
-    applyZoom(readZoomRef.current * factor);
+    easeZoom(() => applyZoom(readZoomRef.current * factor));
     pokeChrome();
   }
 
@@ -155,6 +174,17 @@ export function Reader({ onLibrary }: { onLibrary: () => void }) {
   }
 
   function goTo(id: string, dir: 1 | -1) {
+    if (id === currentPageId) return;
+    const shown = slot
+      ? [slot.left?.id, slot.right?.id].filter((x): x is string => Boolean(x))
+      : page
+        ? [page.id]
+        : [];
+    if (!webtoon && shown.length && !prefersReducedMotion()) {
+      setLeaving({ ids: shown, dir, stamp: Date.now() });
+      window.clearTimeout(leaveTimer.current);
+      leaveTimer.current = window.setTimeout(() => setLeaving(null), 320);
+    }
     setFinished(false);
     setTurn(dir);
     setPan({ x: 0, y: 0 });
@@ -244,6 +274,8 @@ export function Reader({ onLibrary }: { onLibrary: () => void }) {
     return () => {
       window.clearTimeout(hideTimer.current);
       window.clearTimeout(hintTimer.current);
+      window.clearTimeout(zoomAnimTimer.current);
+      window.clearTimeout(leaveTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -263,6 +295,7 @@ export function Reader({ onLibrary }: { onLibrary: () => void }) {
     close,
     stepReadZoom,
     applyZoom,
+    easeZoom,
   });
   nav.current = {
     tapFromPoint,
@@ -279,6 +312,7 @@ export function Reader({ onLibrary }: { onLibrary: () => void }) {
     close,
     stepReadZoom,
     applyZoom,
+    easeZoom,
   };
 
   useEffect(() => {
@@ -311,10 +345,10 @@ export function Reader({ onLibrary }: { onLibrary: () => void }) {
       }
       if (e.key === "ArrowRight") {
         e.preventDefault();
-        n.rtl ? n.storyDelta(-1) : n.storyDelta(1);
+        n.storyDelta(n.rtl ? -1 : 1);
       } else if (e.key === "ArrowLeft") {
         e.preventDefault();
-        n.rtl ? n.storyDelta(1) : n.storyDelta(-1);
+        n.storyDelta(n.rtl ? 1 : -1);
       } else if (e.key === " " || e.key === "PageDown") {
         e.preventDefault();
         n.storyDelta(1);
@@ -341,7 +375,7 @@ export function Reader({ onLibrary }: { onLibrary: () => void }) {
         n.stepReadZoom(-1);
       } else if (e.key === "0") {
         e.preventDefault();
-        n.applyZoom(1);
+        n.easeZoom(() => n.applyZoom(1));
         n.pokeChrome();
       }
     }
@@ -392,12 +426,16 @@ export function Reader({ onLibrary }: { onLibrary: () => void }) {
       const pinch = e.ctrlKey || e.metaKey;
       if (webtoon && !pinch && readZoomRef.current <= 1.02) return;
       e.preventDefault();
-      const factor = e.deltaY < 0 ? 1.12 : 0.88;
-      applyZoom(readZoomRef.current * factor, { x: e.clientX, y: e.clientY });
+      trackZoom();
+      // A trackpad pinch arrives as a stream of small deltas; a mouse wheel
+      // in big notches. Scale by the delta so both feel direct.
+      const step = pinch ? clamp(-e.deltaY / 100, -0.25, 0.25) : e.deltaY < 0 ? 0.12 : -0.12;
+      applyZoom(readZoomRef.current * (1 + step), { x: e.clientX, y: e.clientY });
       pokeChrome();
     }
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [webtoon]);
 
   const title =
@@ -405,13 +443,15 @@ export function Reader({ onLibrary }: { onLibrary: () => void }) {
   const progress =
     pages.length > 0 ? ((index + 1) / pages.length) * 100 : 0;
 
+  const turnPx = `${turn * (rtl ? -40 : 40)}px`;
+
   function sheet(pageState: typeof page, key: string) {
     if (!pageState) return null;
     return (
       <div
         key={key}
         className="koma-reader-sheet"
-        style={{ ["--turn" as string]: `${turn * (rtl ? -16 : 16)}px` }}
+        style={{ ["--turn" as string]: turnPx }}
       >
         <MangaPage
           pageOverride={pageState}
@@ -423,6 +463,27 @@ export function Reader({ onLibrary }: { onLibrary: () => void }) {
       </div>
     );
   }
+
+  // The page that was on screen slides out under the one coming in, the push
+  // Books uses; it is drawn from the document, so it stays sharp at any zoom.
+  const leavingSheets =
+    leaving && !webtoon ? (
+      <div
+        key={`leave-${leaving.stamp}`}
+        className="koma-reader-leave"
+        aria-hidden
+        style={{ ["--turn" as string]: `${leaving.dir * (rtl ? -40 : 40)}px` }}
+      >
+        {leaving.ids.map((id) => {
+          const ps = pages.find((p) => p.id === id);
+          return ps ? (
+            <div key={id} className="koma-reader-sheet">
+              <MangaPage pageOverride={ps} readOnly fitHost spreadSlot={leaving.ids.length > 1} onPickFile={() => {}} />
+            </div>
+          ) : null;
+        })}
+      </div>
+    ) : null;
 
   function onStagePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (e.button !== 0) return;
@@ -469,6 +530,7 @@ export function Reader({ onLibrary }: { onLibrary: () => void }) {
     }
     pokeChrome();
     if (pinch.current && pointers.current.size >= 2) {
+      trackZoom();
       const pts = [...pointers.current.values()];
       const dist = Math.max(16, Math.hypot(pts[0]!.x - pts[1]!.x, pts[0]!.y - pts[1]!.y));
       applyZoom(pinch.current.zoom * (dist / pinch.current.dist), {
@@ -480,6 +542,7 @@ export function Reader({ onLibrary }: { onLibrary: () => void }) {
     }
     const drag = panDrag.current;
     if (drag && readZoomRef.current > 1.02) {
+      trackZoom();
       const dx = e.clientX - drag.x;
       const dy = e.clientY - drag.y;
       if (Math.abs(dx) + Math.abs(dy) > 6) gesture.current = "pan";
@@ -549,8 +612,10 @@ export function Reader({ onLibrary }: { onLibrary: () => void }) {
         ) {
           return;
         }
-        if (readZoomRef.current > 1.05) applyZoom(1);
-        else applyZoom(2.2, { x: e.clientX, y: e.clientY });
+        easeZoom(() => {
+          if (readZoomRef.current > 1.05) applyZoom(1);
+          else applyZoom(2.2, { x: e.clientX, y: e.clientY });
+        });
         pokeChrome();
       }}
     >
@@ -589,7 +654,7 @@ export function Reader({ onLibrary }: { onLibrary: () => void }) {
           aria-label="Reset zoom"
           title="Fit page (0)"
           onClick={() => {
-            applyZoom(1);
+            easeZoom(() => applyZoom(1));
             pokeChrome();
           }}
         >
@@ -706,6 +771,7 @@ export function Reader({ onLibrary }: { onLibrary: () => void }) {
       >
         <div
           data-koma="reader-stage"
+          data-zoom-anim={zoomAnim ? "" : undefined}
           className={cn(
             webtoon
               ? "mx-auto w-full max-w-[52rem]"
@@ -764,10 +830,11 @@ export function Reader({ onLibrary }: { onLibrary: () => void }) {
         ) : slot ? (
           <div
             data-koma="reader-spread-view"
-            className="flex h-full max-h-full w-full max-w-[1100px] items-stretch justify-center"
+            className="relative flex h-full max-h-full w-full max-w-[1100px] items-stretch justify-center"
           >
+            {leavingSheets}
             {slot.left ? (
-              sheet(slot.left, "left")
+              sheet(slot.left, `left-${slot.left.id}`)
             ) : (
               <div className="hidden min-w-0 flex-1 sm:block" />
             )}
@@ -775,16 +842,14 @@ export function Reader({ onLibrary }: { onLibrary: () => void }) {
               <div className="koma-spine self-stretch" aria-hidden />
             ) : null}
             {slot.right ? (
-              sheet(slot.right, "right")
+              sheet(slot.right, `right-${slot.right.id}`)
             ) : (
               <div className="hidden min-w-0 flex-1 sm:block" />
             )}
           </div>
         ) : (
-          <div
-            key={page?.id}
-            className="h-full w-full max-w-[46rem]"
-          >
+          <div className="relative h-full w-full max-w-[46rem]">
+            {leavingSheets}
             {sheet(page, page?.id ?? "page")}
           </div>
         )}
