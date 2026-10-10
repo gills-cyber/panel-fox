@@ -95,6 +95,7 @@ function AppMenuInner({
   onSave,
   onSaveAs,
   onOpen,
+  onRename,
   onNew,
   onNewBrochure,
   onDownloadProject,
@@ -115,6 +116,7 @@ function AppMenuInner({
   onSave: () => void;
   onSaveAs: () => void;
   onOpen: () => void;
+  onRename: () => void;
   onNew: () => void;
   onNewBrochure: () => void;
   onDownloadProject: () => void;
@@ -215,6 +217,7 @@ function AppMenuInner({
           keys={k("O", { cmd: true })}
           onClick={() => run(onOpen)}
         />
+        <Item label="Rename…" onClick={() => run(onRename)} />
         <Divider />
         <Item
           label="Save"

@@ -1,4 +1,11 @@
-import { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { flushSync } from "react-dom";
 import { toast } from "sonner";
 import {
@@ -90,7 +97,7 @@ import type { Overlay, OverlayKind, PaperTone, PanelImage, StickerId } from "@/l
 import { IMAGE_ZOOM_MAX, IMAGE_ZOOM_MIN, fileToLogoSrc } from "@/lib/manga/image";
 import { PAPER_SIZES } from "@/lib/manga/paper";
 import { useCurrentPage, useStudio } from "@/lib/manga/store";
-import { cn, clamp } from "@/lib/utils";
+import { cn, clamp, prefersReducedMotion } from "@/lib/utils";
 import {
   imageFilesFrom,
   isFileDrag,
@@ -114,6 +121,9 @@ import {
   AUTOSAVE_MS,
   startNewBrochure,
   startNewProject,
+  duplicateNamedProject,
+  renameNamedProject,
+  switchToProject,
 } from "@/lib/manga/project";
 import {
   groupPagesByChapter,
@@ -132,7 +142,7 @@ import {
 const AUTOSAVE_SOON_MS = 2500;
 
 type Drawer = "layouts" | "images" | "adjust" | "script" | null;
-type Menu = "layout" | "zoom" | "media" | "stickers" | null;
+type Menu = "layout" | "zoom" | "media" | "stickers" | "title" | null;
 type InspectorTab = "format" | "document" | "script";
 type StickerTab = "manga" | "clinic" | "logos";
 
@@ -202,6 +212,11 @@ export function Studio() {
   const canUndo = useStudio((s) => s.past.length > 0);
   const canRedo = useStudio((s) => s.future.length > 0);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  // "— Edited" after the name, like an NSDocument window: on while a change
+  // waits for autosave, then it lingers a moment after the save and fades.
+  const [edited, setEdited] = useState<"clean" | "edited" | "saved">("clean");
+  const editedTimer = useRef(0);
+  const [renameTick, setRenameTick] = useState(0);
 
   const selected = page.panels.find((p) => p.id === selectedPanelId) ?? null;
   const selectedOverlay =
@@ -236,6 +251,8 @@ export function Studio() {
   useEffect(() => {
     let dirty = false;
     const mark = (state: ReturnType<typeof useStudio.getState>, prev: ReturnType<typeof useStudio.getState>) => {
+      // Hydration replaces the document wholesale; that is not an edit.
+      if (!useStudio.persist.hasHydrated()) return;
       if (
         state.pages === prev.pages &&
         state.gutter === prev.gutter &&
@@ -254,6 +271,8 @@ export function Studio() {
         return;
       }
       dirty = true;
+      window.clearTimeout(editedTimer.current);
+      setEdited("edited");
       // Save soon after the last edit, not only on the slow interval.
       window.clearTimeout(soon);
       soon = window.setTimeout(() => void flush(), AUTOSAVE_SOON_MS);
@@ -266,6 +285,14 @@ export function Studio() {
       try {
         const record = await autosaveProject();
         if (record) setSavedAt(record.updatedAt);
+        if (!dirty) {
+          setEdited("saved");
+          window.clearTimeout(editedTimer.current);
+          editedTimer.current = window.setTimeout(
+            () => setEdited((v) => (v === "saved" ? "clean" : v)),
+            prefersReducedMotion() ? 1200 : 1500,
+          );
+        }
       } catch {
         dirty = true;
       }
@@ -281,6 +308,7 @@ export function Studio() {
     return () => {
       window.clearInterval(tick);
       window.clearTimeout(soon);
+      window.clearTimeout(editedTimer.current);
       unsub();
       document.removeEventListener("visibilitychange", onHide);
       window.removeEventListener("pagehide", onHide);
@@ -479,6 +507,12 @@ export function Studio() {
     setSaveOpen(true);
   }
 
+  useEffect(() => {
+    document.title = `${projectName || "Untitled"}${
+      edited === "edited" ? " — Edited" : ""
+    } — PanelFox`;
+  }, [projectName, edited]);
+
   function handleSaveAs() {
     setSaveAsCopy(true);
     setSaveOpen(true);
@@ -594,6 +628,7 @@ export function Studio() {
         onSave={handleSave}
         onSaveAs={handleSaveAs}
         onOpen={() => setProjectsOpen(true)}
+        onRename={() => setRenameTick((n) => n + 1)}
         onNew={handleNew}
         onNewBrochure={handleNewBrochure}
         onDownloadProject={() => downloadProjectFile()}
@@ -621,25 +656,41 @@ export function Studio() {
             <PanelLeft />
           </ToolTipBtn>
           <ToolSep />
-          <button
-            type="button"
+          <div
             data-koma="project-chip"
-            aria-label="Open project library"
-            onClick={() => setProjectsOpen(true)}
-            className="flex min-w-0 max-w-[9rem] items-center gap-1.5 rounded-[6px] px-1.5 py-1 text-left hover:bg-ink/6 lg:max-w-[13rem]"
+            className="flex min-w-0 max-w-[10rem] items-center gap-0.5 lg:max-w-[15rem]"
           >
-            <FileText className="size-3.5 shrink-0 text-muted" />
-            <span className="min-w-0 truncate text-[13px] font-semibold tracking-[-0.01em]">
-              {projectName || "Untitled"}
-            </span>
+            <ToolTipBtn
+              label="Document menu"
+              koma="title-menu"
+              className="md:h-7 md:min-w-7 md:px-1 md:[&>svg]:size-4"
+              active={menu === "title"}
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenu(menu === "title" ? null : "title");
+              }}
+              menu
+            >
+              <FileText className="text-muted" />
+            </ToolTipBtn>
+            <ProjectName editSignal={renameTick} />
+            {edited !== "clean" ? (
+              <span
+                data-koma="edited"
+                data-state={edited}
+                className="koma-edited hidden shrink-0 text-[13px] text-muted lg:inline"
+              >
+                — Edited
+              </span>
+            ) : null}
             <span
               data-koma="autosave"
               data-interval={String(AUTOSAVE_MS)}
-              className="hidden shrink-0 text-[11px] font-normal text-muted lg:inline"
+              className="sr-only"
             >
-              {projectId || savedAt ? "" : "— Unsaved"}
+              {projectId || savedAt ? "Autosave on" : "unsaved"}
             </span>
-          </button>
+          </div>
           <span className="hidden min-w-0 items-center gap-1 sm:flex">
             <ChevronRight aria-hidden className="size-3 shrink-0 text-faint" />
             <PageTitle />
@@ -804,10 +855,12 @@ export function Studio() {
                     role="menuitemradio"
                     aria-checked={zoom === opt.id}
                     className="relative flex h-7 w-full items-center rounded-[5px] pl-6 pr-2.5 text-left text-[13px] text-ink hover:bg-accent hover:text-accent-fg"
-                    onClick={() => {
-                      setZoom(opt.id);
-                      setMenu(null);
-                    }}
+                    onClick={(e) =>
+                      flashThen(e.currentTarget, () => {
+                        setZoom(opt.id);
+                        setMenu(null);
+                      })
+                    }
                   >
                     {zoom === opt.id ? (
                       <Check
@@ -875,6 +928,68 @@ export function Studio() {
             </ToolTipBtn>
           </ToolGroup>
         </div>
+
+        {menu === "title" ? (
+          <MenuPanel className="left-14 top-[50px] w-60 p-1" role="menu">
+            <PanelItem
+              label="Rename"
+              onClick={(el) =>
+                flashThen(el, () => {
+                  setMenu(null);
+                  setRenameTick((n) => n + 1);
+                })
+              }
+            />
+            <PanelItem
+              label="Duplicate"
+              disabled={!projectId}
+              onClick={(el) =>
+                flashThen(el, () => {
+                  setMenu(null);
+                  if (!projectId) return;
+                  void duplicateNamedProject(projectId)
+                    .then((copy) => switchToProject(copy.id))
+                    .then(() => toast.message("Duplicated project"))
+                    .catch((err) =>
+                      toast.error(
+                        err instanceof Error ? err.message : "Duplicate failed",
+                      ),
+                    );
+                })
+              }
+            />
+            <PanelItem
+              label="Save a Copy…"
+              keys={k("S", { cmd: true, shift: true })}
+              onClick={(el) =>
+                flashThen(el, () => {
+                  setMenu(null);
+                  handleSaveAs();
+                })
+              }
+            />
+            <PanelItem
+              label="Download Project File"
+              onClick={(el) =>
+                flashThen(el, () => {
+                  setMenu(null);
+                  downloadProjectFile();
+                })
+              }
+            />
+            <div role="separator" className="mx-2 my-1 h-px bg-line" />
+            <PanelItem
+              label="Projects…"
+              keys={k("O", { cmd: true })}
+              onClick={(el) =>
+                flashThen(el, () => {
+                  setMenu(null);
+                  setProjectsOpen(true);
+                })
+              }
+            />
+          </MenuPanel>
+        ) : null}
 
         {menu === "layout" ? (
           <MenuPanel className="left-1/2 top-12 w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2">
@@ -1485,6 +1600,108 @@ function PageTitle() {
   );
 }
 
+/** The document's name in the titlebar; click to rename in place, like Finder. */
+function ProjectName({ editSignal }: { editSignal: number }) {
+  const name = useStudio((s) => s.projectName || "Untitled");
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const ignoreBlur = useRef(false);
+  const lastSignal = useRef(editSignal);
+
+  useEffect(() => {
+    if (!editing) setDraft(name);
+  }, [name, editing]);
+
+  function startEditing() {
+    ignoreBlur.current = true;
+    setDraft(name);
+    setEditing(true);
+  }
+
+  // Focus once the field exists; a menu item or the File menu may have asked.
+  useLayoutEffect(() => {
+    if (!editing) return;
+    const el = inputRef.current;
+    el?.focus();
+    const t = window.setTimeout(() => {
+      el?.setSelectionRange(0, el.value.length);
+      ignoreBlur.current = false;
+    }, 50);
+    return () => window.clearTimeout(t);
+  }, [editing]);
+
+  useEffect(() => {
+    if (editSignal === lastSignal.current) return;
+    lastSignal.current = editSignal;
+    startEditing();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editSignal]);
+
+  function commit() {
+    const next = draft.trim() || "Untitled";
+    setEditing(false);
+    if (next === name) return;
+    const s = useStudio.getState();
+    if (s.projectId) {
+      void renameNamedProject(s.projectId, next).catch((err) =>
+        toast.error(err instanceof Error ? err.message : "Rename failed"),
+      );
+    } else {
+      s.setProjectName(next);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        data-koma="project-name"
+        aria-label="Rename project"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          startEditing();
+        }}
+        className="min-h-7 min-w-0 truncate rounded-[5px] px-1 text-left text-[13px] font-semibold tracking-[-0.01em] hover:bg-ink/6"
+      >
+        {name}
+      </button>
+    );
+  }
+
+  return (
+    <input
+      ref={inputRef}
+      value={draft}
+      aria-label="Project name"
+      autoComplete="off"
+      autoCorrect="off"
+      autoCapitalize="words"
+      spellCheck={false}
+      enterKeyHint="done"
+      onChange={(e) => setDraft(e.target.value)}
+      onPointerDown={(e) => e.stopPropagation()}
+      onBlur={() => {
+        if (ignoreBlur.current) {
+          inputRef.current?.focus();
+          return;
+        }
+        commit();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") {
+          setDraft(name);
+          setEditing(false);
+        }
+      }}
+      className="relative z-20 h-7 w-44 rounded-[5px] bg-surface px-1 text-[13px] font-semibold tracking-[-0.01em] outline-none ring-2 ring-accent/60"
+    />
+  );
+}
+
 function ToolGroup({
   children,
   className,
@@ -1568,15 +1785,58 @@ function ToolTipBtn({
   );
 }
 
+/** NSMenu's blink: the chosen item flashes off and on, then the action runs. */
+function flashThen(el: HTMLElement | null, fn: () => void) {
+  if (!el || prefersReducedMotion()) {
+    fn();
+    return;
+  }
+  el.setAttribute("data-flash", "");
+  window.setTimeout(fn, 140);
+}
+
+function PanelItem({
+  label,
+  keys,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  keys?: string;
+  disabled?: boolean;
+  onClick: (el: HTMLButtonElement) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={disabled}
+      onPointerDown={(e) => e.currentTarget.focus()}
+      onClick={(e) => onClick(e.currentTarget)}
+      className="koma-menu-item relative flex h-[26px] w-full items-center justify-between rounded-[5px] pl-6 pr-2 text-left text-[13px] text-ink outline-none hover:bg-accent hover:text-accent-fg focus-visible:bg-accent focus-visible:text-accent-fg disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-ink"
+    >
+      <span>{label}</span>
+      {keys ? (
+        <span className="koma-keys ml-8 text-[13px] tabular-nums opacity-55">
+          {keys}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
 function MenuPanel({
   children,
   className,
+  role,
 }: {
   children: ReactNode;
   className?: string;
+  role?: string;
 }) {
   return (
     <div
+      role={role}
       className={cn(
         "absolute top-11 z-40 rounded-[14px] bg-surface/92 p-2 shadow-float backdrop-blur-2xl koma-pop-in",
         className,

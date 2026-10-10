@@ -468,6 +468,14 @@ img {
   color: var(--color-muted);
 }
 
+/* "— Edited" fades in with the first change and out a moment after the save lands. */
+.koma-edited {
+  animation: koma-fade-in 150ms var(--ease-out) both;
+}
+.koma-edited[data-state="saved"] {
+  animation: koma-fade-out 250ms var(--ease-out) 1200ms forwards;
+}
+
 /* Press feedback shared by toolbar items: a quick dip, a springy release. */
 .koma-press {
   transition:
@@ -1557,7 +1565,8 @@ img {
   .koma-toast,
   .koma-reader-host,
   .koma-reader-sheet.is-out,
-  .koma-template-card {
+  .koma-template-card,
+  .koma-edited {
     animation: none !important;
   }
   .koma-reader-sheet.is-out {
