@@ -133,8 +133,9 @@ export function MangaPage({
   const [draft, setDraft] = useState<Record<string, PanelRect> | null>(null);
 
   const storedBoxes = useMemo(
-    () => boxesForPage(page, margin, gutter, rtl),
-    [page, margin, gutter, rtl],
+    () => boxesForPage({ templateId: page.templateId, panels: page.panels }, margin, gutter, rtl),
+    // Lettering edits replace the page object but not its panels; keep box identity stable then.
+    [page.templateId, page.panels, margin, gutter, rtl],
   );
   const boxes = useMemo(() => {
     if (!draft) return storedBoxes;

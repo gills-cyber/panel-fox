@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { memo, useMemo, useRef } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { boxesForPage } from "@/lib/manga/templates";
 import { useStudio } from "@/lib/manga/store";
@@ -7,7 +7,7 @@ import { paperSpec } from "@/lib/manga/paper";
 import { tiltCover } from "@/lib/manga/image";
 import { cn } from "@/lib/utils";
 
-export function PageThumb({
+function PageThumbInner({
   page,
   index,
   selected,
@@ -266,3 +266,15 @@ export function PageThumb({
     </div>
   );
 }
+
+/** Thumbnails of untouched pages skip re-rendering; the callbacks only reach stable store actions. */
+export const PageThumb = memo(
+  PageThumbInner,
+  (a, b) =>
+    a.page === b.page &&
+    a.index === b.index &&
+    a.selected === b.selected &&
+    a.label === b.label &&
+    a.className === b.className &&
+    a.passive === b.passive,
+);

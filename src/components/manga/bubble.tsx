@@ -134,7 +134,7 @@ function useTailMotion(tailX: number, tailY: number, live: boolean) {
   return visual;
 }
 
-export function Bubble({
+function BubbleInner({
   overlay,
   selected,
   pageEl,
@@ -283,19 +283,45 @@ export function Bubble({
     setMenu(null);
   }
 
-  function bumpFont(delta: number) {
-    const step =
-      o.fontSize <= 16 && Math.abs(delta) > 1 ? Math.sign(delta) : delta;
-    useStudio.getState().updateOverlay(
-      overlay.id,
-      { fontSize: clamp(o.fontSize + step, LETTER_FONT_MIN, LETTER_FONT_MAX) },
-      true,
-    );
+  /** The overlay as it looks right now: the store value plus any uncommitted draft. */
+  function liveOverlay(): Overlay {
+    return { ...overlayRef.current, ...(draftRef.current ?? {}) };
+  }
+
+  /**
+   * Wheel / button nudges stay a local draft while they stream in, like a drag,
+   * so the whole studio is not re-rendered per tick. The draft is committed as
+   * one history step once the input goes quiet.
+   */
+  function nudgeLive(patch: Partial<Overlay>) {
+    if (!liveDragRef.current) {
+      liveDragRef.current = true;
+      setLiveDrag(true);
+      useStudio.getState().beginLiveEdit();
+    }
+    applyDraft(patch);
     if (wheelQuiet.current != null) window.clearTimeout(wheelQuiet.current);
     wheelQuiet.current = window.setTimeout(() => {
-      useStudio.getState().endLiveEdit();
+      wheelQuiet.current = null;
+      flushDraft();
       setLiveDrag(false);
-    }, 200);
+    }, 220);
+  }
+
+  function bumpFont(delta: number) {
+    const cur = liveOverlay();
+    const step =
+      cur.fontSize <= 16 && Math.abs(delta) > 1 ? Math.sign(delta) : delta;
+    const fontSize = clamp(cur.fontSize + step, LETTER_FONT_MIN, LETTER_FONT_MAX);
+    if (fontSize === cur.fontSize) return;
+    const next = { ...cur, fontSize };
+    const box = fitLetterBox(
+      next,
+      pageAspect(useStudio.getState().paperSize),
+      cur.autoFit === false ? "grow" : "auto",
+      cur,
+    );
+    nudgeLive({ fontSize, ...(box ?? {}) });
   }
 
   function pagePct(clientX: number, clientY: number) {
@@ -681,10 +707,7 @@ export function Bubble({
         }
       }}
       onWheel={(e) => {
-        if (!selected) return;
-        setLiveDrag(true);
-        if (wheelQuiet.current != null) window.clearTimeout(wheelQuiet.current);
-        wheelQuiet.current = window.setTimeout(() => setLiveDrag(false), 90);
+        if (!selected || overlay.locked) return;
         if (
           (overlay.kind === "sticker" || overlay.kind === "tone" || isDialogue(overlay.kind)) &&
           (e.ctrlKey || e.metaKey || e.altKey)
@@ -692,20 +715,16 @@ export function Bubble({
           e.preventDefault();
           e.stopPropagation();
           const factor = e.deltaY < 0 ? 1.12 : 0.88;
-          useStudio.getState().updateOverlay(overlay.id, scaleOverlayBy(o, factor), true);
-          if (wheelQuiet.current != null) window.clearTimeout(wheelQuiet.current);
-          wheelQuiet.current = window.setTimeout(() => useStudio.getState().endLiveEdit(), 200);
+          nudgeLive(scaleOverlayBy(liveOverlay(), factor));
           return;
         }
         if (canRotate(overlay.kind)) {
           e.preventDefault();
           e.stopPropagation();
           const step = e.shiftKey ? 1 : 5;
-          useStudio.getState().updateOverlay(overlay.id, {
-            rotate: wrapDeg((o.rotate ?? 0) + (e.deltaY < 0 ? -step : step)),
-          }, true);
-          if (wheelQuiet.current != null) window.clearTimeout(wheelQuiet.current);
-          wheelQuiet.current = window.setTimeout(() => useStudio.getState().endLiveEdit(), 200);
+          nudgeLive({
+            rotate: wrapDeg((liveOverlay().rotate ?? 0) + (e.deltaY < 0 ? -step : step)),
+          });
           return;
         }
         e.preventDefault();
@@ -887,7 +906,7 @@ export function Bubble({
               <span className="koma-size min-w-12 px-0.5">
                 <FontSizeControl
                   compact
-                  value={overlay.fontSize}
+                  value={o.fontSize}
                   onChange={(fontSize) => {
                     useStudio.getState().updateOverlay(overlay.id, { fontSize });
                   }}
@@ -2319,3 +2338,5 @@ export function ChainLayer({
     </svg>
   );
 }
+/** Only the bubble being edited re-renders on a store update; its props are primitives plus its own overlay. */
+export const Bubble = memo(BubbleInner);

@@ -833,7 +833,20 @@ export const useStudio = create<StudioState>()(
         },
         setBleed: (bleed) => commit({ bleed }),
         setSnapEdges: (snapEdges) => set({ snapEdges }),
-        setSnapGuides: (snapGuides) => set({ snapGuides }),
+        setSnapGuides: (snapGuides) => {
+          // Dragging calls this every pointer move; only re-render the page when the guides actually change.
+          const cur = get().snapGuides;
+          if (
+            cur.length === snapGuides.length &&
+            cur.every((g, i) => {
+              const n = snapGuides[i]!;
+              return g.axis === n.axis && g.at === n.at;
+            })
+          ) {
+            return;
+          }
+          set({ snapGuides });
+        },
         setSpread: (spread) =>
           set({ spread: get().paperSize === "webtoon" ? false : spread }),
         setReadMode: (readMode) =>

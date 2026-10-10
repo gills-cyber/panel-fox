@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { toast } from "sonner";
 import {
@@ -2068,7 +2068,9 @@ function Inspector({
   );
 }
 
-function InsertTools({ onAdded }: { onAdded?: () => void }) {
+// The lettering/sticker/SFX palettes are static; the callbacks only reach stable setters and store actions.
+const InsertTools = memo(InsertToolsInner, () => true);
+function InsertToolsInner({ onAdded }: { onAdded?: () => void }) {
   function add(kind: OverlayKind, sticker?: StickerId, text?: string) {
     if (kind === "title") insertTitle();
     else useStudio.getState().addOverlay(kind, sticker, text);
@@ -2190,7 +2192,8 @@ function InsertBtn({
   );
 }
 
-function StickerGrid({ onPick }: { onPick: (id: StickerId) => void }) {
+const StickerGrid = memo(StickerGridInner, () => true);
+function StickerGridInner({ onPick }: { onPick: (id: StickerId) => void }) {
   return (
     <div className="grid grid-cols-4 gap-1">
       {STICKERS.map((s) => (
@@ -2208,7 +2211,8 @@ function StickerGrid({ onPick }: { onPick: (id: StickerId) => void }) {
   );
 }
 
-function ClinicIconGrid({ onPick }: { onPick: (id: string) => void }) {
+const ClinicIconGrid = memo(ClinicIconGridInner, () => true);
+function ClinicIconGridInner({ onPick }: { onPick: (id: string) => void }) {
   return (
     <div data-koma="clinic-icons" className="space-y-2">
       {CLINIC_ICON_GROUPS.map((group) => (

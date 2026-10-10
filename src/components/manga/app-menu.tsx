@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { isApplePlatform, shiftSymbol } from "@/lib/manga/hotkeys";
 import { useStudio } from "@/lib/manga/store";
@@ -69,7 +69,7 @@ function Divider() {
   return <div className="my-1 h-px bg-line" />;
 }
 
-export function AppMenu({
+function AppMenuInner({
   thumbs,
   onThumbs,
   onExport,
@@ -554,4 +554,26 @@ function MenuBtn({
       ) : null}
     </div>
   );
+}
+
+type AppMenuProps = Parameters<typeof AppMenuInner>[0];
+const MemoAppMenu = memo(AppMenuInner);
+
+/**
+ * The menubar is static between opens; the studio passes fresh closures every
+ * render, so route them through stable proxies and let the memo skip the work.
+ */
+export function AppMenu(props: AppMenuProps) {
+  const latest = useRef(props);
+  latest.current = props;
+  const stable = useMemo(() => {
+    const out: Record<string, (...args: unknown[]) => unknown> = {};
+    for (const key of Object.keys(latest.current)) {
+      if (!key.startsWith("on")) continue;
+      out[key] = (...args: unknown[]) =>
+        (latest.current as unknown as Record<string, (...a: unknown[]) => unknown>)[key]?.(...args);
+    }
+    return out;
+  }, []);
+  return <MemoAppMenu {...props} {...(stable as Partial<AppMenuProps>)} />;
 }
