@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, Pencil, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetTitle } from "@/components/manga/sheet";
 import {
   deleteNamedProject,
   documentHasWork,
@@ -54,16 +55,19 @@ export function SaveAsDialog({
     };
   }, [open, current, projectId, asCopy]);
 
-  if (!open) return null;
-
   const copy = asCopy || Boolean(projectId);
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-      <button type="button" className="koma-scrim absolute inset-0" aria-label="Close" onClick={onClose} />
+    <Sheet
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) onClose();
+      }}
+      koma="save-project"
+      aria-labelledby="save-title"
+      className="max-w-sm"
+    >
       <form
-        className="koma-glass-surface relative w-full max-w-sm rounded-[16px] p-5 shadow-float"
-        data-koma-dialog="save-project"
         onSubmit={(e) => {
           e.preventDefault();
           setBusy(true);
@@ -76,9 +80,11 @@ export function SaveAsDialog({
             .finally(() => setBusy(false));
         }}
       >
-        <h2 className="text-[15px] font-semibold">
-          {copy ? "Save a Copy" : "Save Project"}
-        </h2>
+        <SheetTitle asChild>
+          <h2 id="save-title" className="text-[15px] font-semibold">
+            {copy ? "Save a Copy" : "Save Project"}
+          </h2>
+        </SheetTitle>
         <p className="mt-1 text-[12px] text-muted">
           {copy
             ? "Adds another manga on this device. Your other projects stay."
@@ -89,7 +95,7 @@ export function SaveAsDialog({
           value={name}
           onChange={(e) => setName(e.target.value)}
           aria-label="Project name"
-          className="mt-3 h-10 w-full rounded-md border border-line bg-paper-white px-2.5 text-[16px] outline-none ring-accent focus:ring-2"
+          className="koma-field mt-3 w-full text-[16px] md:text-[14px]"
         />
         {existing.length ? (
           <p className="mt-2 text-[11px] text-muted">
@@ -103,8 +109,8 @@ export function SaveAsDialog({
         ) : (
           <p className="mt-2 text-[11px] text-muted">This will be your first saved project.</p>
         )}
-        <div className="mt-4 flex justify-end gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={onClose}>
             Cancel
           </Button>
           <Button type="submit" size="sm" disabled={busy || !name.trim()}>
@@ -112,7 +118,7 @@ export function SaveAsDialog({
           </Button>
         </div>
       </form>
-    </div>
+    </Sheet>
   );
 }
 
@@ -147,8 +153,6 @@ export function OpenProjectDialog({
       return;
     }
     void listProjects().then(setRows);
-    const t = window.setTimeout(() => searchRef.current?.focus(), 40);
-    return () => window.clearTimeout(t);
   }, [open]);
 
   const filtered = useMemo(() => {
@@ -156,8 +160,6 @@ export function OpenProjectDialog({
     if (!q) return rows;
     return rows.filter((r) => r.name.toLowerCase().includes(q));
   }, [rows, query]);
-
-  if (!open) return null;
 
   async function refresh() {
     setRows(await listProjects());
@@ -173,18 +175,26 @@ export function OpenProjectDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center p-3 sm:p-6">
-      <button type="button" className="koma-scrim absolute inset-0" aria-label="Close" onClick={onClose} />
-      <div
-        role="dialog"
-        aria-labelledby="projects-title"
-        data-koma-dialog="projects"
-        className="koma-glass-surface relative flex max-h-[88dvh] w-full max-w-2xl flex-col rounded-[18px] shadow-float"
-      >
+    <Sheet
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) onClose();
+      }}
+      koma="projects"
+      aria-labelledby="projects-title"
+      className="flex max-h-[calc(100dvh-6rem)] max-w-2xl flex-col p-0"
+      onOpenAutoFocus={(e) => {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }}
+    >
+      <div className="flex min-h-0 flex-1 flex-col">
         <div className="border-b border-line px-4 py-3">
-          <h2 id="projects-title" className="text-[15px] font-semibold">
-            Projects
-          </h2>
+          <SheetTitle asChild>
+            <h2 id="projects-title" className="text-[15px] font-semibold">
+              Projects
+            </h2>
+          </SheetTitle>
           <p className="mt-0.5 text-[12px] text-muted">
             {rows.length
               ? `${rows.length} manga on this device · search, open, or save another`
@@ -199,7 +209,13 @@ export function OpenProjectDialog({
               placeholder="Find a project…"
               aria-label="Find a project"
               data-koma="project-search"
-              className="h-10 w-full rounded-md border border-line bg-paper-white pl-8 pr-2.5 text-[16px] outline-none ring-accent focus:ring-2"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && filtered.length === 1 && filtered[0]) {
+                  e.preventDefault();
+                  void openRow(filtered[0].id);
+                }
+              }}
+              className="koma-field w-full pl-8 text-[16px] md:text-[14px]"
             />
           </label>
           {!currentId && documentHasWork() ? (
@@ -249,6 +265,10 @@ export function OpenProjectDialog({
                       "overflow-hidden rounded-md border border-line p-2",
                       current ? "ring-2 ring-accent" : "hover:bg-ink/4",
                     )}
+                    onDoubleClick={() => {
+                      if (renameId === row.id || deleting) return;
+                      void openRow(row.id);
+                    }}
                   >
                     <button
                       type="button"
@@ -472,7 +492,7 @@ export function OpenProjectDialog({
           </Button>
         </div>
       </div>
-    </div>
+    </Sheet>
   );
 }
 

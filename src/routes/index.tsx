@@ -10,11 +10,13 @@ function Home() {
     <TooltipProvider delayDuration={700} disableHoverableContent skipDelayDuration={300}>
       <Studio />
       <Toaster
-        position="top-center"
-        offset={56}
-        duration={2600}
+        position="bottom-center"
+        offset={28}
+        duration={2200}
+        gap={8}
+        visibleToasts={2}
         toastOptions={{
-          className: "font-sans pointer-events-auto",
+          className: "koma-toast font-sans pointer-events-auto",
         }}
       />
     </TooltipProvider>

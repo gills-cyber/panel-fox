@@ -353,6 +353,8 @@ export function Studio() {
       );
     }
     function onKey(e: KeyboardEvent) {
+      // A sheet owns the keyboard while it is up (Radix handles Esc and Return).
+      if (document.querySelector("[data-koma-dialog]")) return;
       if (useStudio.getState().readMode) {
         const used = handleStudioHotkey(e);
         if (used && e.key === "Escape") {

@@ -78,6 +78,9 @@ export function modKey(e: KeyboardEvent | ReactKeyboardEvent) {
 
 export function handleStudioHotkey(e: KeyboardEvent) {
   if (e.isComposing) return false;
+  if (typeof document !== "undefined" && document.querySelector("[data-koma-dialog]")) {
+    return false;
+  }
 
   const studio = useStudio.getState();
   const key = e.key;

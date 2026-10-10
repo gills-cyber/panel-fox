@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetTitle } from "@/components/manga/sheet";
 import {
   downloadBlob,
   exportPageBlob,
@@ -190,18 +191,6 @@ export function ExportDialog({
   }, [open]);
 
   useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key !== "Escape") return;
-      if (busy) return;
-      e.preventDefault();
-      onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose, busy]);
-
-  useEffect(() => {
     if (format === "pdf" || format === "cbz") setTwoUp(true);
     if (webtoon) {
       setTwoUp(false);
@@ -224,8 +213,6 @@ export function ExportDialog({
     return describeWebtoonExport(selectedPages.length, pageH);
   }, [selectedPages.length, paperSize]);
 
-  if (!open) return null;
-
   const bookish = format === "pdf" || format === "cbz";
   const progressLabel =
     busy && progress && progress.total > 0
@@ -234,26 +221,52 @@ export function ExportDialog({
         ? "Exporting…"
         : "Export";
 
+  function runExportClick() {
+    if (busy || selectedPages.length === 0) return;
+    setBusy(true);
+    setError(null);
+    setProgress({ done: 0, total: selectedPages.length });
+    void runExport(format, range, twoUp, (done, total) => setProgress({ done, total }))
+      .then((name) => {
+        writePrefs({
+          exportFormat: format,
+          exportRange: range,
+          exportTwoUp: twoUp,
+        });
+        toast.success(`Saved ${name}`);
+        onClose();
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Export failed"))
+      .finally(() => {
+        setBusy(false);
+        setProgress(null);
+      });
+  }
+
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-      <button
-        type="button"
-        className="koma-scrim absolute inset-0"
-        aria-label="Close"
-        disabled={busy}
-        onClick={() => {
-          if (!busy) onClose();
+    <Sheet
+      open={open}
+      onOpenChange={(v) => {
+        if (!v && !busy) onClose();
+      }}
+      koma="export"
+      aria-labelledby="export-title"
+      className="max-h-[min(40rem,calc(100dvh-6rem))] max-w-md overflow-y-auto"
+      onEscapeKeyDown={(e) => {
+        if (busy) e.preventDefault();
+      }}
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          runExportClick();
         }}
-      />
-      <div
-        role="dialog"
-        aria-labelledby="export-title"
-        data-koma-dialog="export"
-        className="koma-glass-surface relative max-h-[min(40rem,calc(100dvh-2rem))] w-full max-w-md overflow-y-auto rounded-[16px] p-5 shadow-float"
       >
-        <h2 id="export-title" className="text-[15px] font-semibold">
-          Export
-        </h2>
+        <SheetTitle asChild>
+          <h2 id="export-title" className="text-[15px] font-semibold">
+            Export
+          </h2>
+        </SheetTitle>
         <p className="mt-1 text-[12px] text-muted">
           {webtoon
             ? "Strip is one tall scroll. Canvas is 800px JPEG cuts ready for WEBTOON Canvas."
@@ -377,43 +390,20 @@ export function ExportDialog({
         {error ? (
           <p className="mt-3 text-[12px] text-hanko">{error}</p>
         ) : null}
-        <div className="mt-4 flex justify-end gap-2">
-          <Button variant="ghost" size="sm" disabled={busy} onClick={onClose}>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button type="button" variant="outline" size="sm" disabled={busy} onClick={onClose}>
             Cancel
           </Button>
           <Button
+            type="submit"
             size="sm"
             disabled={busy || selectedPages.length === 0}
             data-koma="export-run"
-            onClick={() => {
-              setBusy(true);
-              setError(null);
-              setProgress({ done: 0, total: selectedPages.length });
-              void runExport(format, range, twoUp, (done, total) =>
-                setProgress({ done, total }),
-              )
-                .then((name) => {
-                  writePrefs({
-                    exportFormat: format,
-                    exportRange: range,
-                    exportTwoUp: twoUp,
-                  });
-                  toast.success(`Saved ${name}`);
-                  onClose();
-                })
-                .catch((err) =>
-                  setError(err instanceof Error ? err.message : "Export failed"),
-                )
-                .finally(() => {
-                  setBusy(false);
-                  setProgress(null);
-                });
-            }}
           >
             <span data-koma="export-progress">{progressLabel}</span>
           </Button>
         </div>
-      </div>
-    </div>
+      </form>
+    </Sheet>
   );
 }
