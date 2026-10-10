@@ -1371,6 +1371,12 @@ img {
   }
 }
 
+/* Template chooser: cards cascade in, the way Keynote's chooser fills. */
+.koma-template-card {
+  animation: koma-thumb-in 220ms var(--ease-out) both;
+  animation-delay: calc(min(var(--i, 0), 14) * 18ms);
+}
+
 /* Command palette: Spotlight's window, it springs in a touch below its rest. */
 .koma-palette {
   translate: -50% 0;

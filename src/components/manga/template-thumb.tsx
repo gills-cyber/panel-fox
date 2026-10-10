@@ -29,7 +29,7 @@ export function TemplateThumb({
         {panels.map((p) => (
           <span
             key={p.id}
-            className="absolute bg-ink"
+            className="absolute bg-[#2a2a2c]"
             style={{
               left: `${p.x}%`,
               top: `${p.y}%`,

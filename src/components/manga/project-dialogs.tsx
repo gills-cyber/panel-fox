@@ -465,8 +465,12 @@ export function OpenProjectDialog({
               size="sm"
               data-koma="project-new"
               onClick={() => {
+                if (onNew) {
+                  onClose();
+                  onNew();
+                  return;
+                }
                 void startNewProject().then((stashed) => {
-                  onNew?.();
                   onClose();
                   if (stashed.saved) {
                     toast.message(`Saved “${stashed.name}”. Started a new manga.`);
@@ -496,7 +500,7 @@ export function OpenProjectDialog({
   );
 }
 
-export function ProjectPanel() {
+export function ProjectPanel({ onNew }: { onNew?: () => void } = {}) {
   const name = useStudio((s) => s.projectName);
   const id = useStudio((s) => s.projectId);
   const [recent, setRecent] = useState<ProjectMeta[]>([]);
@@ -550,6 +554,10 @@ export function ProjectPanel() {
           size="sm"
           data-koma="project-new"
           onClick={() => {
+            if (onNew) {
+              onNew();
+              return;
+            }
             void startNewProject().then((stashed) => {
               if (stashed.saved) {
                 toast.message(`Saved “${stashed.name}”. Started a new manga.`);

@@ -64,6 +64,8 @@ import {
 import { TemplateThumb } from "@/components/manga/template-thumb";
 import { StickerMark } from "@/components/manga/bubble";
 import { AppMenu } from "@/components/manga/app-menu";
+import { CheckRow, Segmented } from "@/components/manga/controls";
+import { NewProjectDialog, type NewProjectChoice } from "@/components/manga/new-project-dialog";
 import { CommandPalette } from "@/components/manga/command-palette";
 import { Floating } from "@/components/manga/floating";
 import { ExportDialog } from "@/components/manga/export-dialog";
@@ -171,6 +173,7 @@ export function Studio() {
   const [saveAsCopy, setSaveAsCopy] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
+  const [newOpen, setNewOpen] = useState<"manga" | "brochure" | null>(null);
   const [ghost, setGhost] = useState<{
     src: string;
     x: number;
@@ -576,24 +579,42 @@ export function Studio() {
   }
 
   function handleNew() {
-    void startNewProject().then((stashed) => {
-      if (stashed.saved) {
-        toast.message(`Saved “${stashed.name}”. Started a new manga.`);
-      } else {
-        toast.message("New project");
-      }
-    });
+    setProjectsOpen(false);
+    setNewOpen("manga");
   }
 
   function handleNewBrochure() {
-    void startNewBrochure().then((stashed) => {
-      if (stashed.saved) {
-        toast.message(`Saved “${stashed.name}”. Started a clinic brochure.`);
-      } else {
-        toast.message("New clinic brochure");
-      }
+    setProjectsOpen(false);
+    setNewOpen("brochure");
+  }
+
+  function chooseTemplate(c: NewProjectChoice) {
+    setNewOpen(null);
+    const start =
+      c.kind === "brochure"
+        ? startNewBrochure({ templateId: c.templateId })
+        : startNewProject({ templateId: c.templateId, paperSize: c.paperSize, rtl: c.rtl });
+    void start.then((stashed) => {
+      useStudio.getState().setReadMode(false);
+      const what = c.kind === "brochure" ? "a clinic brochure" : "a new manga";
+      toast.message(
+        stashed.saved
+          ? `Saved “${stashed.name}”. Started ${what}.`
+          : c.kind === "brochure"
+            ? "New clinic brochure"
+            : "New project",
+      );
     });
   }
+
+  const newProjectDialog = (
+    <NewProjectDialog
+      open={newOpen !== null}
+      initialKind={newOpen ?? "manga"}
+      onClose={() => setNewOpen(null)}
+      onChoose={chooseTemplate}
+    />
+  );
 
   async function onLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -617,11 +638,12 @@ export function Studio() {
     return (
       <div className="flex h-dvh min-h-0 flex-col bg-ink text-surface">
         <Reader onLibrary={() => setProjectsOpen(true)} />
+        {newProjectDialog}
         <OpenProjectDialog
           open={projectsOpen}
           onClose={() => setProjectsOpen(false)}
           onOpenFile={() => projectFileRef.current?.click()}
-          onNew={() => setProjectsOpen(false)}
+          onNew={handleNew}
           onSaveAs={() => {
             setProjectsOpen(false);
             handleSaveAs();
@@ -1339,6 +1361,8 @@ export function Studio() {
             hasCustomLayout={page.panels.some((p) => p.rect)}
             onOpenFile={() => openPicker(selected?.id)}
             onArmFile={() => armPicker(selected?.id)}
+            onNew={handleNew}
+            onNewBrochure={handleNewBrochure}
           />
           )}
         </aside>
@@ -1518,6 +1542,8 @@ export function Studio() {
                 onOpenFile={() => openPicker(selected?.id)}
                 onArmFile={() => armPicker(selected?.id)}
                 onAdded={() => setDrawer(null)}
+                onNew={handleNew}
+                onNewBrochure={handleNewBrochure}
               />
             ) : null}
             {drawer === "script" ? (
@@ -1565,7 +1591,7 @@ export function Studio() {
         open={projectsOpen}
         onClose={() => setProjectsOpen(false)}
         onOpenFile={() => projectFileRef.current?.click()}
-        onNew={() => setProjectsOpen(false)}
+        onNew={handleNew}
         onSaveAs={() => {
           setProjectsOpen(false);
           handleSaveAs();
@@ -1576,6 +1602,7 @@ export function Studio() {
           setSaveOpen(true);
         }}
       />
+      {newProjectDialog}
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
       <CommandPalette
         open={cmdOpen}
@@ -2184,6 +2211,8 @@ function Inspector({
   onOpenFile,
   onArmFile,
   onAdded,
+  onNew,
+  onNewBrochure,
 }: {
   tab: InspectorTab;
   showAll?: boolean;
@@ -2200,6 +2229,8 @@ function Inspector({
   onOpenFile: () => void;
   onArmFile?: () => void;
   onAdded?: () => void;
+  onNew?: () => void;
+  onNewBrochure?: () => void;
 }) {
   const image = selected?.image ?? null;
   const showFormat = showAll || tab === "format";
@@ -2393,7 +2424,7 @@ function Inspector({
             <BookInspector />
           </section>
           <section className="koma-group">
-            <ProjectPanel />
+            <ProjectPanel onNew={onNew} />
           </section>
           <section className="koma-group">
           <LogoLibrary
@@ -2408,6 +2439,10 @@ function Inspector({
             className="w-full"
             data-koma="new-brochure"
             onClick={() => {
+              if (onNewBrochure) {
+                onNewBrochure();
+                return;
+              }
               void startNewBrochure().then((stashed) => {
                 if (stashed.saved) {
                   toast.message(`Saved “${stashed.name}”. Started a clinic brochure.`);
@@ -3194,94 +3229,3 @@ function Field({
 }
 
 /** NSSegmentedControl: one knob slides between the segments. */
-function Segmented({
-  options,
-  value,
-  onChange,
-  className,
-}: {
-  options: { id: string; label: string; icon?: ReactNode }[];
-  value: string;
-  onChange: (id: string) => void;
-  className?: string;
-}) {
-  const n = options.length;
-  const i = Math.max(0, options.findIndex((o) => o.id === value));
-  return (
-    <div
-      role="radiogroup"
-      className={cn("relative flex rounded-[7px] bg-ink/5 p-0.5", className)}
-    >
-      <span
-        aria-hidden
-        className="absolute inset-y-0.5 rounded-[5px] bg-surface shadow-tool transition-[left] duration-[var(--motion-fast)] ease-[var(--ease-spring)] motion-reduce:transition-none"
-        style={{
-          width: `calc((100% - 4px) / ${n})`,
-          left: `calc(2px + (100% - 4px) * ${i} / ${n})`,
-        }}
-      />
-      {options.map((opt) => (
-        <button
-          key={opt.id}
-          type="button"
-          role="radio"
-          aria-checked={value === opt.id}
-          aria-label={opt.icon ? opt.label : undefined}
-          onClick={() => onChange(opt.id)}
-          className={cn(
-            "relative z-10 flex min-h-11 flex-1 items-center justify-center rounded-[5px] text-[12px] font-medium transition-colors duration-[var(--motion-quick)] md:h-7 md:min-h-7",
-            value === opt.id ? "text-ink" : "text-muted hover:text-ink",
-          )}
-        >
-          {opt.icon ?? opt.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function CheckRow({
-  label,
-  checked,
-  onChange,
-  koma,
-  disabled,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  koma?: string;
-  disabled?: boolean;
-}) {
-  return (
-    <label
-      className={cn(
-        "flex items-center justify-between gap-3 text-[13px]",
-        disabled && "opacity-40",
-      )}
-      data-koma={koma}
-    >
-      <span>{label}</span>
-      <span
-        className={cn(
-          "relative h-5 w-8 shrink-0 rounded-full shadow-[inset_0_0_0_0.5px_rgb(0_0_0/0.08)] transition-colors duration-[var(--motion-quick)]",
-          checked && !disabled ? "bg-accent" : "bg-ink/15",
-        )}
-      >
-        <input
-          type="checkbox"
-          checked={checked}
-          disabled={disabled}
-          onChange={(e) => onChange(e.target.checked)}
-          className="absolute inset-0 z-10 cursor-pointer opacity-0 disabled:cursor-not-allowed"
-        />
-        <span
-          className={cn(
-            "absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow-[0_0_0_0.5px_rgb(0_0_0/0.12),0_1px_2px_rgb(0_0_0/0.25)] transition-transform duration-[var(--motion-fast)] ease-[var(--ease-spring)] motion-reduce:transition-none",
-            checked && "translate-x-3",
-          )}
-        />
-      </span>
-    </label>
-  );
-}

@@ -284,6 +284,8 @@ export function Reader({ onLibrary }: { onLibrary: () => void }) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") return;
+      // A sheet (Projects, Save, the template chooser) owns the keyboard.
+      if (document.querySelector("[data-koma-dialog]")) return;
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       const n = nav.current;

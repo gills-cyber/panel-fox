@@ -3,6 +3,7 @@ import { idbAllProjects, idbDeleteProject, idbGetProject, idbPutProject } from "
 import type { BookInfo, CastMember, Chapter, PageState, PaperTone, ScriptLine } from "./types";
 import type { PaperSizeId } from "./paper";
 import { useStudio } from "./store";
+import type { NewProjectOptions } from "./store";
 import { downloadBlob } from "./export";
 import { SAMPLES } from "./samples";
 
@@ -215,15 +216,15 @@ export async function switchToProject(id: string) {
   return { switched: true as const, stashed };
 }
 
-export async function startNewProject() {
+export async function startNewProject(opts?: NewProjectOptions) {
   const stashed = await saveCurrentIfNeeded();
-  useStudio.getState().newProject();
+  useStudio.getState().newProject(opts);
   return stashed;
 }
 
-export async function startNewBrochure() {
+export async function startNewBrochure(opts?: { templateId?: string }) {
   const stashed = await saveCurrentIfNeeded();
-  useStudio.getState().newBrochure();
+  useStudio.getState().newBrochure(opts);
   return stashed;
 }
 

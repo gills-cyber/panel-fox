@@ -31,7 +31,7 @@ import type { PaperSizeId, OverlayStyle } from "./paper";
 import { DEFAULT_PAPER_SIZE, pageAspect } from "./paper";
 import { LAYOUT_KEYS, fitLetterBox, letterMinBox, usesMeasuredFit } from "./fit";
 import { applyTheme, readPrefs, writePrefs } from "./prefs";
-import { makeBrochurePage } from "./brochure";
+import { BROCHURE_TEMPLATE, makeBrochurePage } from "./brochure";
 import {
   cloneCast,
   cloneScript,
@@ -260,6 +260,12 @@ let lastRecordAt = 0;
 let liveEditing = false;
 let liveSnap: HistorySnap | null = null;
 
+export type NewProjectOptions = {
+  templateId?: string;
+  paperSize?: PaperSizeId;
+  rtl?: boolean;
+};
+
 type StudioState = {
   pages: PageState[];
   currentPageId: string;
@@ -404,8 +410,8 @@ type StudioState = {
   redo: () => void;
   selectedImage: () => PanelImage | null;
   replaceDocument: (doc: ProjectDoc) => void;
-  newProject: () => void;
-  newBrochure: () => void;
+  newProject: (opts?: NewProjectOptions) => void;
+  newBrochure: (opts?: { templateId?: string }) => void;
   setProjectName: (name: string) => void;
   addSplashPage: (src: string) => void;
   addCast: (name?: string, portrait?: string) => CastMember;
@@ -1841,14 +1847,18 @@ export const useStudio = create<StudioState>()(
           });
         },
 
-        newProject: () => {
+        newProject: (opts) => {
           lastRecordAt = 0;
-          const page = makePage("blank", false);
+          const page = makePage(opts?.templateId ?? "blank", false);
+          const paperSize = opts?.paperSize ?? get().paperSize;
           set({
             pages: [page],
             currentPageId: page.id,
             projectId: null,
             projectName: "Untitled",
+            paperSize,
+            spread: paperSize === "webtoon" ? false : get().spread,
+            rtl: opts?.rtl ?? get().rtl,
             past: [],
             future: [],
             selectedPanelId: null,
@@ -1863,9 +1873,12 @@ export const useStudio = create<StudioState>()(
           });
         },
 
-        newBrochure: () => {
+        newBrochure: (opts) => {
           lastRecordAt = 0;
-          const page = makeBrochurePage();
+          const page =
+            !opts?.templateId || opts.templateId === BROCHURE_TEMPLATE
+              ? makeBrochurePage()
+              : { ...makePage(opts.templateId, false), title: "Clinic brochure" };
           set({
             pages: [page],
             currentPageId: page.id,
