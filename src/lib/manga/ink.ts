@@ -147,6 +147,12 @@ function ribbon(
   closed: boolean,
   box: InkBox,
   width: (i: number) => number,
+  /**
+   * Share of the pen that lies outside the centre line: 0.5 straddles it (tail
+   * edges), 1 keeps the inner edge on the line so a body's ink only ever grows
+   * away from the text.
+   */
+  outward = 0.5,
 ): { outer: Pt[]; inner: Pt[] } {
   const sx = box.boxW / 100;
   const sy = box.boxH / 100;
@@ -163,10 +169,12 @@ function ribbon(
     const len = Math.hypot(tx, ty) || 1;
     const nx = -ty / len;
     const ny = tx / len;
-    const half = (width(i) * unit) / 2;
+    const w = width(i) * unit;
+    const out = w * outward;
+    const inn = w - out;
     const p = pts[i]!;
-    outer.push({ x: p.x + (nx * half) / sx, y: p.y + (ny * half) / sy });
-    inner.push({ x: p.x - (nx * half) / sx, y: p.y - (ny * half) / sy });
+    outer.push({ x: p.x + (nx * out) / sx, y: p.y + (ny * out) / sy });
+    inner.push({ x: p.x - (nx * inn) / sx, y: p.y - (ny * inn) / sy });
   }
   return { outer, inner };
 }
@@ -285,10 +293,11 @@ export function inkBody(
       const lean = (rand() - 0.5) * 0.35 * amount;
       const a = ((i + lean) / spikes) * Math.PI * 2 - Math.PI / 2;
       const base = i % 2 === 0 ? 1 : 1 - jag;
-      const r = base + (i % 2 === 0 ? (rand() - 0.3) * 0.09 : (rand() - 0.5) * 0.05) * amount;
+      // Tips vary freely; valleys only ever move outward from the clean valley.
+      const r = base + (i % 2 === 0 ? (rand() - 0.3) * 0.09 : rand() * 0.04) * amount;
       pts.push({ x: e.cx + Math.cos(a) * e.rx * r, y: e.cy + Math.sin(a) * e.ry * r });
     }
-    const rb = ribbon(pts, true, box, (i) => width(i / spikes) * 1.05);
+    const rb = ribbon(pts, true, box, (i) => width(i / spikes) * 1.05, 1);
     return { paper: polygon(rb.inner), ink: ring(polygon(rb.outer), polygon(rb.inner.slice().reverse())) };
   }
 
@@ -296,8 +305,11 @@ export function inkBody(
     const wob = periodicNoise(rand, 5);
     const amp = (style === "box" ? 0.5 : 0.7) * amount;
     const n = 64;
-    const pts = roundedRectPoints(e, style === "box" ? 5 : 10, n, (t) => wob(t) * amp);
-    const rb = ribbon(pts, true, box, (i) => width(i / pts.length) * (style === "box" ? 0.95 : 1));
+    // A caption's text frame is the padded box (balloonTextFrame), so its body
+    // fills the box like the clean caption rect does, instead of the dialogue ellipse.
+    const rect = style === "box" ? { cx: 50, cy: 50, rx: 47.5, ry: 47 } : e;
+    const pts = roundedRectPoints(rect, style === "box" ? 5 : 10, n, (t) => wob(t) * amp);
+    const rb = ribbon(pts, true, box, (i) => width(i / pts.length) * (style === "box" ? 0.95 : 1), 1);
     return { paper: smoothClosed(rb.inner), ink: ring(smoothClosed(rb.outer), smoothClosed(rb.inner.slice().reverse())) };
   }
 
@@ -324,13 +336,14 @@ export function inkBody(
       return 1 - dip * amount + heights[b]! * amount * bump;
     };
     const pts = ellipsePoints(e, n, radial, -Math.PI / 2 + rand() * 0.6);
-    const rb = ribbon(pts, true, box, (i) => width(i / n) * 0.95);
+    const rb = ribbon(pts, true, box, (i) => width(i / n) * 0.95, 1);
     return { paper: smoothClosed(rb.inner), ink: ring(smoothClosed(rb.outer), smoothClosed(rb.inner.slice().reverse())) };
   }
 
   // Ovals (oval, round, soft, radio) and whisper: ellipse with a hand wobble.
   const wob = periodicNoise(rand, 4);
-  const amp = 0.022 * amount; // ±2% of the radius, never deeper than the text frame's 30% inset
+  // ±2% of the radius (±1% for whisper, whose stroked line straddles the outline).
+  const amp = (style === "whisper" ? 0.011 : 0.022) * amount;
   const n = 72;
   const pts = ellipsePoints(e, n, (t) => 1 + wob(t) * amp, -Math.PI / 2 + rand() * Math.PI * 2);
 
@@ -340,7 +353,7 @@ export function inkBody(
     return { paper: d, ink: "", line: { d, width: lineUnits(box, 0.7 * pen), dash: "5 4" } };
   }
 
-  const rb = ribbon(pts, true, box, (i) => width(i / n));
+  const rb = ribbon(pts, true, box, (i) => width(i / n), 1);
   const shape: InkShape = {
     paper: smoothClosed(rb.inner),
     ink: ring(smoothClosed(rb.outer), smoothClosed(rb.inner.slice().reverse())),
@@ -413,6 +426,6 @@ export function inkPuff(
   const n = 24;
   const pts = ellipsePoints(p, n, (t) => 1 + wob(t) * 0.06 * amount, rand() * Math.PI * 2);
   const width = penWidth(rand, 0.85);
-  const rb = ribbon(pts, true, box, (i) => width(i / n));
+  const rb = ribbon(pts, true, box, (i) => width(i / n), 1);
   return { paper: smoothClosed(rb.inner), ink: ring(smoothClosed(rb.outer), smoothClosed(rb.inner.slice().reverse())) };
 }

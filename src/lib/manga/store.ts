@@ -29,7 +29,7 @@ import { roundRect } from "./resize";
 import { clamp, uid } from "@/lib/utils";
 import type { PaperSizeId, OverlayStyle } from "./paper";
 import { DEFAULT_PAPER_SIZE, pageAspect } from "./paper";
-import { LAYOUT_KEYS, fitLetterBox, usesMeasuredFit } from "./fit";
+import { LAYOUT_KEYS, fitLetterBox, letterMinBox, usesMeasuredFit } from "./fit";
 import { applyTheme, readPrefs, writePrefs } from "./prefs";
 import { makeBrochurePage } from "./brochure";
 import {
@@ -148,6 +148,7 @@ type ProjectDoc = {
   bleed?: number;
   rtl: boolean;
   showNumbers: boolean;
+  handInk?: boolean;
   projectId: string | null;
   projectName: string;
   script?: ScriptLine[];
@@ -175,6 +176,7 @@ type HistorySnap = {
   bleed: number;
   rtl: boolean;
   showNumbers: boolean;
+  handInk: boolean;
   script: ScriptLine[];
   cast: CastMember[];
   book: BookInfo;
@@ -206,6 +208,7 @@ function takeSnap(s: HistorySnap): HistorySnap {
     bleed: s.bleed,
     rtl: s.rtl,
     showNumbers: s.showNumbers,
+    handInk: s.handInk,
     script: cloneScript(s.script),
     cast: cloneCast(s.cast),
     book: cloneBook(s.book ?? defaultBook()),
@@ -842,7 +845,8 @@ export const useStudio = create<StudioState>()(
         },
         setBleed: (bleed) => commit({ bleed }),
         setSnapEdges: (snapEdges) => set({ snapEdges }),
-        setHandInk: (handInk) => set({ handInk }),
+        // Part of the document (saved, undoable): the look of the lettering travels with the work.
+        setHandInk: (handInk) => commit({ handInk }),
         setSnapGuides: (snapGuides) => {
           // Dragging calls this every pointer move; only re-render the page when the guides actually change.
           const cur = get().snapGuides;
@@ -1459,6 +1463,16 @@ export const useStudio = create<StudioState>()(
               current,
             );
             if (box) merged = { ...merged, ...box };
+          } else if (usesMeasuredFit(merged) && ("w" in patch || "h" in patch)) {
+            // A box set directly never squeezes the words out.
+            const min = letterMinBox(merged, pageAspect(s.paperSize));
+            if (min) {
+              merged = {
+                ...merged,
+                w: Math.max(merged.w, min.minW),
+                h: Math.max(merged.h, min.minH),
+              };
+            }
           }
           const pages = patchPage(s.pages, s.currentPageId, (page) => ({
             ...page,
@@ -1755,6 +1769,7 @@ export const useStudio = create<StudioState>()(
             bleed: doc.bleed ?? 0,
             rtl: doc.rtl,
             showNumbers: doc.showNumbers,
+            handInk: doc.handInk !== false,
             projectId: doc.projectId,
             projectName: doc.projectName || "Untitled",
             past: [],

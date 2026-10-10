@@ -17,6 +17,8 @@ export type ProjectDoc = {
   bleed?: number;
   rtl: boolean;
   showNumbers: boolean;
+  /** Hand-drawn (G-pen) balloon ink; absent in older files means on. */
+  handInk?: boolean;
   projectId: string | null;
   projectName: string;
   script?: ScriptLine[];
@@ -77,6 +79,7 @@ export function snapshotDoc(): ProjectDoc {
     bleed: s.bleed,
     rtl: s.rtl,
     showNumbers: s.showNumbers,
+    handInk: s.handInk,
     projectId: s.projectId,
     projectName: s.projectName,
     script: s.script,

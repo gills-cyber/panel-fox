@@ -1,4 +1,4 @@
-import { memo, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { FlipHorizontal2, FlipVertical2 } from "lucide-react";
 import type { Overlay, ResizeHandle, StickerId } from "@/lib/manga/types";
 import { HANDLE_CURSOR } from "@/lib/manga/resize";
@@ -1365,8 +1365,14 @@ function BalloonBody({
   const fill = inheritPaint ? undefined : isClearPaint(overlay.fill) ? "none" : overlay.fill || "#ffffff";
   const stroke = inheritPaint ? undefined : overlay.stroke || "#161412";
   const e = balloonEllipse(style);
-  if (handInk) {
-    const shape = inkBody(style, inkSeed(overlay.id), inkBoxOf(overlay, aspect));
+  const box = inkBoxOf(overlay, aspect);
+  // The ink path only changes with the style, the seed or the box proportions,
+  // so a drag (same box) re-renders without regenerating it.
+  const shape = useMemo(
+    () => (handInk ? inkBody(style, inkSeed(overlay.id), box) : null),
+    [handInk, style, overlay.id, box.boxW, box.boxH],
+  );
+  if (shape) {
     const paperColor = inheritPaint ? undefined : fill;
     const inkColor = inheritPaint ? undefined : stroke;
     return (
@@ -1449,11 +1455,25 @@ function BubbleShape({
 }) {
   const handInk = useStudio((s) => s.handInk);
   const paperSize = useStudio((s) => s.paperSize);
+  const style = balloonStyleOf(overlay);
+  const aspect = pageAspect(paperSize);
+  const inkParts = useMemo(() => {
+    if (!handInk) return null;
+    const e = balloonEllipse(style);
+    const seed = inkSeed(overlay.id);
+    const box = inkBoxOf(overlay, aspect);
+    const g = speechTailGeom(overlay.tailX, overlay.tailY, e);
+    const trail = balloonUsesTrail(style) ? thoughtTrail(overlay.tailX, overlay.tailY) : [];
+    return {
+      tail: balloonHasTail(style) ? inkTail(g, seed, box) : null,
+      puffs: trail.map((p, i) => inkPuff(p, seed + 17 * (i + 1), box)),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handInk, overlay.kind, overlay.id, style, overlay.tailX, overlay.tailY, overlay.w, overlay.h, aspect]);
   if (!paint) return null;
   const fill = isClearPaint(overlay.fill) ? "none" : overlay.fill || "#ffffff";
   const stroke = overlay.stroke || "#161412";
   if (overlay.kind === "title" || overlay.kind === "sfx" || overlay.kind === "tone" || overlay.kind === "text") return null;
-  const style = balloonStyleOf(overlay);
   if (overlay.kind === "narration" && !overlay.balloonStyle && !handInk) {
     return (
       <svg
@@ -1475,16 +1495,14 @@ function BubbleShape({
       </svg>
     );
   }
-  const aspect = pageAspect(paperSize);
   const e = balloonEllipse(style);
   const g = speechTailGeom(overlay.tailX, overlay.tailY, e);
   const trail = balloonUsesTrail(style) ? thoughtTrail(overlay.tailX, overlay.tailY) : [];
-  const tailOn = showTail && balloonHasTail(style);
-  if (handInk) {
-    const seed = inkSeed(overlay.id);
-    const box = inkBoxOf(overlay, aspect);
-    const puffs = trail.slice(0, showTail ? trail.length : Math.max(0, trail.length - 1));
-    const tail = tailOn ? inkTail(g, seed, box) : null;
+  // Trail styles (thought, whisper) are drawn with puffs alone, as in the export.
+  const tailOn = showTail && balloonHasTail(style) && !balloonUsesTrail(style);
+  if (handInk && inkParts) {
+    const puffs = inkParts.puffs.slice(0, showTail ? inkParts.puffs.length : Math.max(0, inkParts.puffs.length - 1));
+    const tail = tailOn ? inkParts.tail : null;
     return (
       <svg
         viewBox="-25 -60 150 240"
@@ -1494,15 +1512,12 @@ function BubbleShape({
         aria-hidden
       >
         <BalloonBody overlay={overlay} aspect={aspect} />
-        {puffs.map((p, i) => {
-          const puff = inkPuff(p, seed + 17 * (i + 1), box);
-          return (
-            <g key={i}>
-              {fill !== "none" ? <path d={puff.paper} fill={fill} stroke="none" /> : null}
-              <path d={puff.ink} fill={stroke} stroke="none" />
-            </g>
-          );
-        })}
+        {puffs.map((puff, i) => (
+          <g key={i}>
+            {fill !== "none" ? <path d={puff.paper} fill={fill} stroke="none" /> : null}
+            <path d={puff.ink} fill={stroke} stroke="none" />
+          </g>
+        ))}
         {tail ? (
           <>
             {fill !== "none" ? <path d={tail.paper} fill={fill} stroke="none" /> : null}

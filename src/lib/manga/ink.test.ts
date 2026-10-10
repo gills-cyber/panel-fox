@@ -43,46 +43,85 @@ function radial(style: BalloonStyle, p: { x: number; y: number }) {
     : Math.hypot(nx, ny);
 }
 
-/** The paper edge must stay at least this far out, per style (text frames sit at 0.58–0.7). */
+/**
+ * The paper edge must stay at least this far out, per style. The ink ribbon
+ * only grows outward, so the edge is the wobbled base outline itself (ovals
+ * ±2.2%, cloud dips 6%, burst/spike valleys at 1 − jag).
+ */
 const FLOOR: Record<BalloonStyle, number> = {
-  oval: 0.9,
-  round: 0.9,
-  soft: 0.9,
-  radio: 0.9,
-  whisper: 0.95,
-  cloud: 0.86,
-  burst: 0.72,
-  spike: 0.66,
-  rect: 0.86,
-  box: 0.9,
+  oval: 0.97,
+  round: 0.97,
+  soft: 0.97,
+  radio: 0.97,
+  whisper: 0.98,
+  cloud: 0.93,
+  burst: 0.83,
+  spike: 0.77,
+  // Rounded corners pull the max-norm radial in (10- and 5-unit radii).
+  rect: 0.9,
+  box: 0.94,
 };
+
+/** Where the clean (geometric) stroke's inner edge sat: 2.8 units centred on the outline. */
+function cleanInnerEdge(style: BalloonStyle) {
+  const e = balloonEllipse(style);
+  const jag = style === "spike" ? 0.22 : style === "burst" ? 0.16 : 0;
+  return 1 - jag - 1.4 / Math.min(e.rx, e.ry);
+}
+
+/** The text frame rectangle in balloon units for a kind. */
+function frameRect(style: BalloonStyle, kind: "speech" | "narration") {
+  const f = balloonTextFrame(style, kind);
+  return { l: f.padLeft, r: 100 - f.padRight, t: f.padTop, b: 100 - f.padBottom };
+}
 
 test("the paper edge never reaches the text frame", () => {
   for (const style of STYLES) {
-    const frame = balloonTextFrame(style, "speech");
+    const clean = cleanInnerEdge(style);
     for (const box of BOXES) {
       for (const seed of SEEDS) {
         const shape = inkBody(style, seed, box);
         const edge = shape.paper || shape.line?.d || "";
         assert.ok(edge.length > 20, `${style} has a paper edge`);
         let min = Infinity;
-        for (const p of points(edge)) {
-          min = Math.min(min, radial(style, p));
-          if (frame.clip) continue;
-          // Captions: the text frame is a padded rectangle. Along the straight
-          // flanks the ink must stay outside it; the rounded corners already
-          // cut inside the frame's corners in the clean geometry.
-          const e = balloonEllipse(style);
-          const corner = style === "box" ? 5 : 10;
-          const onFlank = Math.abs(p.y - e.cy) < e.ry - corner;
-          const insideX = p.x > frame.padLeft + 0.5 && p.x < 100 - frame.padRight - 0.5;
-          assert.ok(!(onFlank && insideX), `${style} edge point ${p.x},${p.y} enters the text frame`);
-        }
+        for (const p of points(edge)) min = Math.min(min, radial(style, p));
         assert.ok(
           min >= FLOOR[style],
           `${style} seed ${seed} box ${box.boxW}x${box.boxH}: edge dips to ${min.toFixed(3)} < ${FLOOR[style]}`,
         );
+        // Never closer to the text than the clean geometry was (whisper's line
+        // straddles the outline, so allow its half width; the rectangles are
+        // covered by the caption test below).
+        const slack = style === "whisper" ? 0.02 : 0;
+        // The clean cloud is a bezier with its own dips, not the ellipse.
+        if (style === "rect" || style === "box" || style === "cloud") continue;
+        assert.ok(
+          min + slack >= clean - 0.005,
+          `${style} seed ${seed}: ink edge ${min.toFixed(3)} is inside the clean stroke edge ${clean.toFixed(3)}`,
+        );
       }
+    }
+  }
+});
+
+test("captions keep their whole text frame on paper", () => {
+  const frame = frameRect("box", "narration");
+  for (const box of BOXES) {
+    for (const seed of SEEDS) {
+      const shape = inkBody("box", seed, box);
+      for (const p of points(shape.paper)) {
+        const inside = p.x > frame.l + 0.5 && p.x < frame.r - 0.5 && p.y > frame.t + 0.5 && p.y < frame.b - 0.5;
+        assert.ok(!inside, `box seed ${seed}: paper edge ${p.x},${p.y} enters the caption frame`);
+      }
+    }
+  }
+  // Box-tail dialogue keeps the clean rectangle's flanks clear of its frame.
+  const dlg = frameRect("rect", "speech");
+  const e = balloonEllipse("rect");
+  for (const seed of SEEDS) {
+    for (const p of points(inkBody("rect", seed, BOXES[2]!).paper)) {
+      const onFlank = Math.abs(p.y - e.cy) < e.ry - 10;
+      assert.ok(!(onFlank && p.x > dlg.l + 0.5 && p.x < dlg.r - 0.5), `rect seed ${seed}: flank enters the frame`);
     }
   }
 });

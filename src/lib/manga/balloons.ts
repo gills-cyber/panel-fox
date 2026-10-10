@@ -73,8 +73,12 @@ export function balloonTextFrame(
   ) {
     return { padLeft: 4, padRight: 4, padTop: 8, padBottom: 8 };
   }
-  if (kind === "narration" || style === "box" || style === "rect") {
+  if (kind === "narration" || style === "box") {
     return { padLeft: 8, padRight: 8, padTop: 11, padBottom: 11 };
+  }
+  if (style === "rect") {
+    // The box-tail body is the 45×36 rectangle (y 12..84); keep the words inside it.
+    return { padLeft: 9, padRight: 9, padTop: 16, padBottom: 20 };
   }
   const e = balloonEllipse(style);
   const inset =
