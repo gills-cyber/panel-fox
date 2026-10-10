@@ -1053,8 +1053,46 @@ img {
   }
 }
 
-[data-koma-menu],
-[data-koma-dialog] {
+/* Menus fade like NSMenu; dialogs and popovers still scale in. */
+@keyframes koma-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes koma-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+/* The chosen item blinks off and on before the menu goes. */
+@keyframes koma-menu-flash {
+  from {
+    background-color: transparent;
+    color: var(--color-ink);
+  }
+  50%,
+  to {
+    background-color: var(--color-accent);
+    color: var(--color-accent-fg);
+  }
+}
+
+[data-koma-menu] {
+  animation: koma-fade-in 100ms var(--ease-out) backwards;
+}
+[data-koma-menu][data-state="closing"] {
+  animation: koma-fade-out 150ms var(--ease-out) forwards;
+  pointer-events: none;
+}
+[data-koma-menu] [data-flash] {
+  animation: koma-menu-flash 140ms step-end both;
+}
+
+[data-koma-dialog],
+[data-koma-popover] {
   animation: koma-pop-in var(--motion-fast) var(--ease-spring) backwards;
   transform-origin: var(--koma-origin, top left);
 }
@@ -1122,13 +1160,9 @@ img {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 50%, transparent);
   animation: koma-gap-in 0.18s var(--ease-spring) both;
 }
+/* NSMenu highlights snap; nothing eases or shrinks on press. */
 .koma-menu-item {
-  transition:
-    background-color var(--motion-quick) var(--ease-out),
-    transform var(--motion-quick) var(--ease-out);
-}
-.koma-menu-item:active:not(:disabled) {
-  scale: 0.98;
+  transition: none;
 }
 .koma-page-zoom {
   transition:
@@ -1433,6 +1467,9 @@ img {
   .koma-reader-end,
   .koma-reader-hint,
   [data-koma-menu],
+  [data-koma-menu][data-state="closing"],
+  [data-koma-menu] [data-flash],
+  [data-koma-popover],
   [data-koma-dialog] {
     animation: none !important;
   }

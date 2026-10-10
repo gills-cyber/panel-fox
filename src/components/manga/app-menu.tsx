@@ -1,28 +1,39 @@
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { cn } from "@/lib/utils";
-import { isApplePlatform, shiftSymbol } from "@/lib/manga/hotkeys";
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
+import { Check } from "lucide-react";
+import { cn, prefersReducedMotion } from "@/lib/utils";
+import { combo, isApplePlatform } from "@/lib/manga/hotkeys";
 import { useStudio } from "@/lib/manga/store";
 import { insertTitle } from "@/lib/manga/actions";
 import { pageOverlays, isDialogue } from "@/lib/manga/lettering";
 
 type MenuId = "file" | "edit" | "insert" | "arrange" | "view" | null;
+const MENU_ORDER: Exclude<MenuId, null>[] = ["file", "edit", "insert", "arrange", "view"];
 
-function useShortcutGlyphs() {
-  const [g, setG] = useState({ mod: "Ctrl", alt: "Alt" });
+/** Resolved after mount so the server and the first client render agree. */
+function useApplePlatform() {
+  const [apple, setApple] = useState(false);
   useEffect(() => {
-    const apple = isApplePlatform();
-    setG({ mod: apple ? "⌘" : "Ctrl", alt: apple ? "⌥" : "Alt" });
+    setApple(isApplePlatform());
   }, []);
-  return g;
+  return apple;
 }
 
 function Shortcut({ keys }: { keys: string }) {
-  return <span className="ml-8 text-[11px] tabular-nums text-muted">{keys}</span>;
+  return <span className="koma-keys ml-8 text-[13px] tabular-nums opacity-55">{keys}</span>;
 }
 
 function Item({
   label,
   keys,
+  checked,
   disabled,
   onClick,
   href,
@@ -30,13 +41,22 @@ function Item({
 }: {
   label: string;
   keys?: string;
+  /** Shown as a check in the leading gutter, the way NSMenu marks a state item. */
+  checked?: boolean;
   disabled?: boolean;
   onClick?: () => void;
   href?: string;
   download?: string;
 }) {
   const className =
-    "flex h-7 w-full items-center justify-between rounded-[7px] px-2.5 text-left text-[13px] text-ink disabled:opacity-40 hover:bg-ink/8";
+    "koma-menu-item relative flex h-[26px] w-full items-center justify-between rounded-[5px] pl-6 pr-2 text-left text-[13px] text-ink outline-none hover:bg-accent hover:text-accent-fg focus-visible:bg-accent focus-visible:text-accent-fg disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-ink";
+  const mark = checked ? (
+    <Check
+      aria-hidden
+      className="absolute left-1.5 top-1/2 size-3.5 -translate-y-1/2"
+      strokeWidth={2.5}
+    />
+  ) : null;
   if (href) {
     return (
       <a
@@ -44,9 +64,12 @@ function Item({
         download={download}
         target="_blank"
         rel="noopener"
+        role="menuitem"
         className={className}
+        onPointerDown={(e) => e.currentTarget.focus()}
         onClick={onClick}
       >
+        {mark}
         {label}
         {keys ? <Shortcut keys={keys} /> : <span />}
       </a>
@@ -55,10 +78,14 @@ function Item({
   return (
     <button
       type="button"
+      role={checked === undefined ? "menuitem" : "menuitemcheckbox"}
+      aria-checked={checked === undefined ? undefined : checked}
       disabled={disabled}
+      onPointerDown={(e) => e.currentTarget.focus()}
       onClick={onClick}
       className={className}
     >
+      {mark}
       {label}
       {keys ? <Shortcut keys={keys} /> : <span />}
     </button>
@@ -125,7 +152,8 @@ function AppMenuInner({
   const canFlipTail = Boolean(
     selectedOverlay && isDialogue(selectedOverlay.kind) && !selectedOverlay.locked,
   );
-  const { mod: modSymbol, alt: altSymbol } = useShortcutGlyphs();
+  const apple = useApplePlatform();
+  const k = (key: string, m: Parameters<typeof combo>[1] = {}) => combo(key, m, apple);
 
   useEffect(() => {
     function close(e: PointerEvent) {
@@ -144,9 +172,29 @@ function AppMenuInner({
     };
   }, []);
 
+  /** Blink the chosen item, then act and close, the way NSMenu does. */
   function run(fn: () => void) {
-    fn();
-    setOpen(null);
+    const el = document.activeElement;
+    const inMenu = el instanceof HTMLElement && el.closest("[data-koma-menu]");
+    const delay = inMenu && !prefersReducedMotion() ? 140 : 0;
+    if (inMenu) el.setAttribute("data-flash", "");
+    if (!delay) {
+      fn();
+      setOpen(null);
+      return;
+    }
+    window.setTimeout(() => {
+      fn();
+      setOpen(null);
+    }, delay);
+  }
+
+  function move(dir: 1 | -1) {
+    setOpen((o) => {
+      if (!o) return o;
+      const i = MENU_ORDER.indexOf(o);
+      return MENU_ORDER[(i + dir + MENU_ORDER.length) % MENU_ORDER.length]!;
+    });
   }
 
   return (
@@ -155,9 +203,13 @@ function AppMenuInner({
       className="koma-glass relative z-50 hidden h-[1.75rem] shrink-0 items-center gap-0 border-b border-line/70 px-1.5 text-[13px] text-ink md:flex"
     >
       <MenuBtn
+        id="file"
         label="File"
         open={open === "file"}
+        anyOpen={open !== null}
         onOpen={() => setOpen((o) => (o === "file" ? null : "file"))}
+        onHover={() => setOpen("file")}
+        onMove={move}
       >
         <Item
           label="New Project"
@@ -169,18 +221,18 @@ function AppMenuInner({
         />
         <Item
           label="Projects…"
-          keys={`${modSymbol}O`}
+          keys={k("O", { cmd: true })}
           onClick={() => run(onOpen)}
         />
         <Divider />
         <Item
           label="Save"
-          keys={`${modSymbol}S`}
+          keys={k("S", { cmd: true })}
           onClick={() => run(onSave)}
         />
         <Item
           label="Save a Copy…"
-          keys={`${modSymbol}${shiftSymbol}S`}
+          keys={k("S", { cmd: true, shift: true })}
           onClick={() => run(onSaveAs)}
         />
         <Item
@@ -191,7 +243,7 @@ function AppMenuInner({
         <Item label="New Page" onClick={() => run(() => useStudio.getState().addPage())} />
         <Item
           label="Duplicate Page"
-          keys={`${modSymbol}${shiftSymbol}D`}
+          keys={k("D", { cmd: true, shift: true })}
           onClick={() => run(() => useStudio.getState().duplicatePage())}
         />
         <Divider />
@@ -199,36 +251,40 @@ function AppMenuInner({
         <Divider />
         <Item
           label="Export…"
-          keys={`${modSymbol}E`}
+          keys={k("E", { cmd: true })}
           onClick={() => run(onExport)}
         />
       </MenuBtn>
       <MenuBtn
+        id="edit"
         label="Edit"
         open={open === "edit"}
+        anyOpen={open !== null}
         onOpen={() => setOpen((o) => (o === "edit" ? null : "edit"))}
+        onHover={() => setOpen("edit")}
+        onMove={move}
       >
         <Item
           label="Undo"
-          keys={`${modSymbol}Z`}
+          keys={k("Z", { cmd: true })}
           disabled={!past}
           onClick={() => run(() => useStudio.getState().undo())}
         />
         <Item
           label="Redo"
-          keys={`${modSymbol}${shiftSymbol}Z`}
+          keys={k("Z", { cmd: true, shift: true })}
           disabled={!future}
           onClick={() => run(() => useStudio.getState().redo())}
         />
         <Divider />
         <Item
           label="Duplicate"
-          keys={`${modSymbol}D`}
+          keys={k("D", { cmd: true })}
           onClick={() => run(() => useStudio.getState().duplicateOverlay())}
         />
         <Item
           label="Bold"
-          keys={`${modSymbol}B`}
+          keys={k("B", { cmd: true })}
           disabled={!overlayId}
           onClick={() =>
             run(() => {
@@ -240,7 +296,7 @@ function AppMenuInner({
         />
         <Item
           label="Italic"
-          keys={`${modSymbol}I`}
+          keys={k("I", { cmd: true })}
           disabled={!overlayId}
           onClick={() =>
             run(() => {
@@ -252,7 +308,7 @@ function AppMenuInner({
         />
         <Item
           label="Copy Style"
-          keys={`${modSymbol}${altSymbol}C`}
+          keys={k("C", { cmd: true, alt: true })}
           disabled={!overlayId}
           onClick={() =>
             run(() => overlayId && useStudio.getState().copyOverlayStyle(overlayId))
@@ -260,7 +316,7 @@ function AppMenuInner({
         />
         <Item
           label="Paste Style"
-          keys={`${modSymbol}${altSymbol}V`}
+          keys={k("V", { cmd: true, alt: true })}
           disabled={!overlayId || !useStudio.getState().styleClipboard}
           onClick={() =>
             run(() => overlayId && useStudio.getState().pasteOverlayStyle(overlayId))
@@ -274,9 +330,13 @@ function AppMenuInner({
         />
       </MenuBtn>
       <MenuBtn
+        id="insert"
         label="Insert"
         open={open === "insert"}
+        anyOpen={open !== null}
         onOpen={() => setOpen((o) => (o === "insert" ? null : "insert"))}
+        onHover={() => setOpen("insert")}
+        onMove={move}
       >
         <Item
           label="Speech"
@@ -299,7 +359,7 @@ function AppMenuInner({
         />
         <Item
           label="Title"
-          keys={`${shiftSymbol}T`}
+          keys={k("T", { shift: true })}
           onClick={() => run(() => insertTitle())}
         />
         <Item
@@ -376,13 +436,17 @@ function AppMenuInner({
         />
       </MenuBtn>
       <MenuBtn
+        id="arrange"
         label="Arrange"
         open={open === "arrange"}
+        anyOpen={open !== null}
         onOpen={() => setOpen((o) => (o === "arrange" ? null : "arrange"))}
+        onHover={() => setOpen("arrange")}
+        onMove={move}
       >
         <Item
           label="Bring to Front"
-          keys={`${modSymbol}${altSymbol}]`}
+          keys={k("]", { cmd: true, alt: true })}
           disabled={!overlayId}
           onClick={() =>
             run(
@@ -392,7 +456,7 @@ function AppMenuInner({
         />
         <Item
           label="Bring Forward"
-          keys={`${modSymbol}]`}
+          keys={k("]", { cmd: true })}
           disabled={!overlayId || overlayIndex === overlays.length - 1}
           onClick={() =>
             run(
@@ -402,7 +466,7 @@ function AppMenuInner({
         />
         <Item
           label="Send Backward"
-          keys={`${modSymbol}[`}
+          keys={k("[", { cmd: true })}
           disabled={!overlayId || overlayIndex <= 0}
           onClick={() =>
             run(
@@ -412,7 +476,7 @@ function AppMenuInner({
         />
         <Item
           label="Send to Back"
-          keys={`${modSymbol}${altSymbol}[`}
+          keys={k("[", { cmd: true, alt: true })}
           disabled={!overlayId}
           onClick={() =>
             run(() => overlayId && useStudio.getState().sendToBack(overlayId))
@@ -433,7 +497,7 @@ function AppMenuInner({
         />
         <Item
           label="Flip Tail Up / Down"
-          keys={`${shiftSymbol}F`}
+          keys={k("F", { shift: true })}
           disabled={!canFlipTail}
           onClick={() =>
             run(
@@ -480,27 +544,26 @@ function AppMenuInner({
         />
       </MenuBtn>
       <MenuBtn
+        id="view"
         label="View"
         open={open === "view"}
+        anyOpen={open !== null}
         onOpen={() => setOpen((o) => (o === "view" ? null : "view"))}
+        onHover={() => setOpen("view")}
+        onMove={move}
       >
-        <Item
-          label={thumbs ? "Hide Thumbnails" : "Show Thumbnails"}
-          onClick={() => run(onThumbs)}
-        />
-        <Item label="Zoom In" keys={`${modSymbol}+`} onClick={() => run(onZoomIn)} />
-        <Item label="Zoom Out" keys={`${modSymbol}-`} onClick={() => run(onZoomOut)} />
-        <Item label="Fit Page" keys={`${modSymbol}0`} onClick={() => run(onZoomFit)} />
+        <Item label="Thumbnails" checked={thumbs} onClick={() => run(onThumbs)} />
+        <Item label="Zoom In" keys={k("+", { cmd: true })} onClick={() => run(onZoomIn)} />
+        <Item label="Zoom Out" keys={k("-", { cmd: true })} onClick={() => run(onZoomOut)} />
+        <Item label="Fit Page" keys={k("0", { cmd: true })} onClick={() => run(onZoomFit)} />
         <Divider />
-        <Item
-          label={spread ? "Single Page" : "Two-Page Spread"}
-          onClick={() => run(onSpread)}
-        />
+        <Item label="Two-Page Spread" checked={spread} onClick={() => run(onSpread)} />
         <Item label="Read Mode" keys="R" onClick={() => run(onRead)} />
         <Item label="Script" onClick={() => run(onScript)} />
         <Divider />
         <Item
-          label={snapEdges ? "Snap to Edges ✓" : "Snap to Edges"}
+          label="Snap to Edges"
+          checked={snapEdges}
           onClick={() =>
             run(() => {
               const s = useStudio.getState();
@@ -509,7 +572,8 @@ function AppMenuInner({
           }
         />
         <Item
-          label={handInk ? "Hand-drawn Balloons ✓" : "Hand-drawn Balloons"}
+          label="Hand-drawn Balloons"
+          checked={handInk}
           onClick={() =>
             run(() => {
               const s = useStudio.getState();
@@ -528,23 +592,91 @@ function AppMenuInner({
 }
 
 function MenuBtn({
+  id,
   label,
   open,
+  anyOpen,
   onOpen,
+  onHover,
+  onMove,
   children,
 }: {
+  id: Exclude<MenuId, null>;
   label: string;
   open: boolean;
+  /** Some menu in the bar is open, so sliding onto this title switches to it. */
+  anyOpen: boolean;
   onOpen: () => void;
+  onHover: () => void;
+  onMove: (dir: 1 | -1) => void;
   children: ReactNode;
 }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [closing, setClosing] = useState(false);
+  const wasOpen = useRef(open);
+
+  // Fade the panel out for a beat after it closes (NSMenu fades, never pops).
+  useEffect(() => {
+    const prev = wasOpen.current;
+    wasOpen.current = open;
+    if (!prev || open) return;
+    if (prefersReducedMotion()) return;
+    setClosing(true);
+    const t = window.setTimeout(() => setClosing(false), 160);
+    return () => window.clearTimeout(t);
+  }, [open]);
+
+  useEffect(() => {
+    if (open) {
+      setClosing(false);
+      panelRef.current?.focus({ preventScroll: true });
+    }
+  }, [open]);
+
+  function onKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
+    const items = [
+      ...e.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), a[href]"),
+    ];
+    const i = items.indexOf(document.activeElement as HTMLElement);
+    const go = (n: number) => items[(n + items.length) % items.length]?.focus();
+    switch (e.key) {
+      case "ArrowDown":
+        go(i + 1);
+        break;
+      case "ArrowUp":
+        go(i < 0 ? items.length - 1 : i - 1);
+        break;
+      case "Home":
+        go(0);
+        break;
+      case "End":
+        go(items.length - 1);
+        break;
+      case "ArrowRight":
+        onMove(1);
+        break;
+      case "ArrowLeft":
+        onMove(-1);
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+  }
+
   return (
     <div className="relative">
       <button
         type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        data-koma={`menu-${id}`}
         onPointerDown={(e) => {
           e.stopPropagation();
           onOpen();
+        }}
+        onPointerEnter={() => {
+          if (anyOpen && !open) onHover();
         }}
         className={cn(
           "h-[22px] rounded-[4px] px-1.5 text-[13px] leading-[22px]",
@@ -553,11 +685,16 @@ function MenuBtn({
       >
         {label}
       </button>
-      {open ? (
+      {open || closing ? (
         <div
+          ref={panelRef}
+          role="menu"
+          tabIndex={-1}
           data-koma-menu
-          className="koma-pop-in absolute left-0 top-[26px] z-50 min-w-[16rem] rounded-[12px] bg-surface/92 p-1.5 shadow-float backdrop-blur-2xl"
+          data-state={open ? "open" : "closing"}
+          className="absolute left-0 top-[26px] z-50 min-w-[16rem] rounded-[12px] bg-surface/92 p-1.5 shadow-float outline-none backdrop-blur-2xl"
           onPointerDown={(e) => e.stopPropagation()}
+          onKeyDown={onKeyDown}
         >
           {children}
         </div>

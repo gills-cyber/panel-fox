@@ -75,3 +75,30 @@ remembers whether you left it open.
 `npm test` now also runs `src/lib/manga/typography.test.ts`. The 12 failing
 tests under `scripts/` (platform share-card / app-env checks) fail identically
 on the original source and are unrelated to the editor.
+
+## Hand-drawn balloons
+
+- **G-pen ink.** Balloon outlines are no longer a uniform stroked ellipse.
+  `src/lib/manga/ink.ts` draws each outline as a filled ink ribbon whose
+  width swells and thins like a nib under changing pressure, with a slow hand
+  wobble, bowed tapering tails, scalloped thought clouds, uneven burst spikes,
+  dabbed whisper dashes and a lighter inner ring for radio balloons. Captions
+  stay ruler-straight with a hair of bow.
+- **Same ink on screen and in export.** One generator produces path strings
+  that the editor's SVG, the style thumbnails and the canvas export all paint,
+  so PNG/PDF output matches the page. The pen width is compensated for the
+  balloon box's proportions so it reads as one even pen however the balloon
+  is stretched.
+- **Each balloon has its own character, and keeps it.** The quirks come from
+  a seed derived from the balloon's id, so nothing jitters between frames,
+  undo/redo, or screen and export. Duplicating a balloon gives the copy its
+  own hand.
+- **Lettering untouched.** The text frame (`balloonEllipse` /
+  `balloonTextFrame`) and the measured fit are unchanged; the ink's inner
+  edge stays outside the text frame. `src/lib/manga/ink.test.ts` checks this
+  for every style across 40 seeds and five box proportions, and checks that
+  the output is deterministic.
+- **Switchable.** View ▸ Hand-drawn Balloons (also in the inspector) turns the
+  clean geometry back on; the choice is remembered and respected by export.
+- `npm test` now runs the ink test; `scripts/ts-resolve.mjs` lets `node --test`
+  import modules that use the `@/` alias.

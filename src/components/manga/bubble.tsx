@@ -28,6 +28,7 @@ import { pageAspect } from "@/lib/manga/paper";
 import { cn, clamp } from "@/lib/utils";
 import { FontSizeControl } from "@/components/manga/font-size";
 import { ContextMenu } from "@/components/manga/context-menu";
+import { combo } from "@/lib/manga/hotkeys";
 import { Slider } from "@/components/ui/slider";
 import { scriptOrder, speakerOf } from "@/lib/manga/script";
 import { smartEdit } from "@/lib/manga/typography";
@@ -1182,12 +1183,15 @@ function BubbleInner({
                   },
                   {
                     label: "Larger text",
+                    keys: "+",
                     onClick: () => bumpFont(4),
                   },
                   {
                     label: "Smaller text",
+                    keys: "−",
                     onClick: () => bumpFont(-4),
                   },
+                  { separator: true as const },
                   ...(isDialogue(overlay.kind)
                     ? [
                         {
@@ -1208,20 +1212,24 @@ function BubbleInner({
                         {
                           label: "Flip to other speaker",
                           mark: "ctx-flip-tail-x",
+                          keys: "F",
                           onClick: () =>
                             useStudio.getState().flipOverlayTail(overlay.id, "x"),
                         },
                         {
                           label: "Flip tail up / down",
                           mark: "ctx-flip-tail-y",
+                          keys: combo("F", { shift: true }),
                           onClick: () =>
                             useStudio.getState().flipOverlayTail(overlay.id, "y"),
                         },
+                        { separator: true as const },
                       ]
-                    : []),
+                    : [{ separator: true as const }]),
                 ]),
             {
               label: "Duplicate",
+              keys: combo("D", { cmd: true }),
               onClick: () => useStudio.getState().duplicateOverlay(overlay.id),
             },
             ...(canRotate(overlay.kind)
@@ -1247,33 +1255,44 @@ function BubbleInner({
                   },
                 ]
               : []),
+            { separator: true as const },
             {
               label: overlay.locked ? "Unlock" : "Lock",
+              keys: combo("L", { cmd: true }),
               onClick: () => useStudio.getState().toggleOverlayLock(overlay.id),
             },
             {
               label: overlay.hidden ? "Show" : "Hide",
+              keys: "H",
               onClick: () => useStudio.getState().toggleOverlayHidden(overlay.id),
             },
+            { separator: true as const },
             {
               label: "Copy style",
+              keys: combo("C", { cmd: true, alt: true }),
               onClick: () => useStudio.getState().copyOverlayStyle(overlay.id),
             },
             {
               label: "Paste style",
+              keys: combo("V", { cmd: true, alt: true }),
               disabled: !useStudio.getState().styleClipboard,
               onClick: () => useStudio.getState().pasteOverlayStyle(overlay.id),
             },
+            { separator: true as const },
             {
               label: "Move to front",
+              keys: combo("]", { cmd: true, alt: true }),
               onClick: () => useStudio.getState().bringToFront(overlay.id),
             },
             {
               label: "Bring to back",
+              keys: combo("[", { cmd: true, alt: true }),
               onClick: () => useStudio.getState().sendToBack(overlay.id),
             },
+            { separator: true as const },
             {
               label: "Delete",
+              keys: "⌫",
               danger: true,
               onClick: remove,
             },

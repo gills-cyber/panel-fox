@@ -45,6 +45,23 @@ export const modSymbol = isAppleMod ? "⌘" : "Ctrl";
 export const altSymbol = isAppleMod ? "⌥" : "Alt";
 export const shiftSymbol = "⇧";
 
+/**
+ * A shortcut label in the platform's order: macOS writes ⌃⌥⇧⌘ before the key
+ * (⇧⌘S), other platforms spell the modifiers out (Ctrl+Shift+S).
+ */
+export function combo(
+  key: string,
+  m: { ctrl?: boolean; alt?: boolean; shift?: boolean; cmd?: boolean } = {},
+  apple = isAppleMod,
+) {
+  if (apple) {
+    return `${m.ctrl ? "⌃" : ""}${m.alt ? "⌥" : ""}${m.shift ? "⇧" : ""}${m.cmd ? "⌘" : ""}${key}`;
+  }
+  return [m.ctrl && "Ctrl", m.alt && "Alt", m.shift && "Shift", m.cmd && "Ctrl", key]
+    .filter(Boolean)
+    .join("+");
+}
+
 /** Ctrl (Windows) and ⌘ (macOS / iPhone) both count as the modifier. */
 export function modKey(e: KeyboardEvent | ReactKeyboardEvent) {
   return e.metaKey || e.ctrlKey;

@@ -6,6 +6,7 @@ import {
   AlignLeft,
   AlignRight,
   Bold,
+  Check,
   ChevronDown,
   Cloud,
   FileText,
@@ -765,17 +766,21 @@ export function Studio() {
                     key={String(opt.id)}
                     type="button"
                     data-koma={`zoom-${opt.id}`}
-                    className={cn(
-                      "flex h-8 w-full items-center rounded-md px-2.5 text-left text-sm",
-                      zoom === opt.id
-                        ? "bg-ink/10 font-medium"
-                        : "hover:bg-ink/5",
-                    )}
+                    role="menuitemradio"
+                    aria-checked={zoom === opt.id}
+                    className="relative flex h-7 w-full items-center rounded-[5px] pl-6 pr-2.5 text-left text-[13px] text-ink hover:bg-accent hover:text-accent-fg"
                     onClick={() => {
                       setZoom(opt.id);
                       setMenu(null);
                     }}
                   >
+                    {zoom === opt.id ? (
+                      <Check
+                        aria-hidden
+                        className="absolute left-1.5 top-1/2 size-3.5 -translate-y-1/2"
+                        strokeWidth={2.5}
+                      />
+                    ) : null}
                     {opt.label}
                   </button>
                 ))}

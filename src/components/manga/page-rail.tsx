@@ -242,6 +242,7 @@ export function PageContextMenu({
                         toast.success("Set as cover");
                       },
                     },
+                    { separator: true as const },
                     {
                       label: "Delete Page",
                       mark: "delete-page",
