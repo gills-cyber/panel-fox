@@ -102,3 +102,105 @@ on the original source and are unrelated to the editor.
   clean geometry back on; the choice is remembered and respected by export.
 - `npm test` now runs the ink test; `scripts/ts-resolve.mjs` lets `node --test`
   import modules that use the `@/` alias.
+- **Follow-up fixes.** The ink now grows outward only, so the inner edge
+  never crosses the text frame however hard a balloon is squeezed; captions
+  enclose their whole text frame on paper; thought clouds no longer draw a
+  stray tail; and the hand-drawn setting is saved with the document, so a
+  project opens with the ink it was lettered in. `ink.test.ts` covers the
+  inner-edge rule for captions as well.
+
+## macOS pass
+
+The studio now reads as a native Mac document app. As before, each area was
+changed on its own and checked on screen in light and dark appearance before
+the next one. Lettering, dragging, resizing, zoom, autosave and undo/redo were
+re-run after every step with the same Playwright scripts.
+
+### Chrome and identity
+
+- **Unified titlebar.** One glass strip holds the labeled toolbar items,
+  hairline separators, the breadcrumb (project name › page) and a Read
+  button as the accent item. Tooltips are light
+  NSToolbar-style capsules that appear after 700 ms and show the shortcut in
+  platform glyphs (⌘⇧Z on a Mac, Ctrl+Shift+Z elsewhere).
+- **Document identity.** The window title follows the project name and
+  shows "— Edited" while a change waits for autosave (it lingers a moment
+  after the save, then fades); clicking the name renames
+  it in place, and the little document-title menu offers Undo, Redo, Rename,
+  Duplicate, Save a Copy… and Download Project File.
+- **Floating layer.** Menus, popovers and context menus float in their own
+  layer above the page with real glass, NSPopover arrows that point at their
+  anchor, and clamping so nothing opens outside the window.
+- **Inspector to AppKit spec.** Text fields, pop-up buttons, color wells, a
+  sliding segmented control, switches, sliders with readouts, hairline
+  groups and left-hand disclosure folds. `controls.tsx` exports the shared
+  `Segmented` and `CheckRow` so the dialogs use the same parts.
+- **Sheets and HUD.** Export, Save, Open and New are macOS sheets that drop
+  from the toolbar, trap focus, close on Esc and confirm on Return; editor
+  hotkeys are gated while one is open. Toasts are a HUD capsule at the
+  bottom centre.
+- **Reduced motion.** The animations in this pass are listed under
+  `prefers-reduced-motion` and collapse to an instant change.
+
+### Spotlight-style commands
+
+- **⌘K (or ⌘⇧P) opens a command palette** over the studio. It lists every
+  menubar verb, a "Go to" entry for each page, "Apply Layout" for each
+  layout, and "Open" for each saved project, grouped like the menus with
+  disabled verbs sorted last. Search matches whole-word prefixes (so `exp`
+  finds Export but `xpo` does not), recents come first when the query is
+  empty, and Return runs the command after the window has closed so the
+  action never fights the closing animation.
+
+### Mac keyboard set
+
+- **⌘X / ⌘C / ⌘V carry balloons.** Cut and copy put the selected balloon on
+  an internal clipboard and mirror it to the system clipboard as JSON, so a
+  balloon can be pasted into another project or another tab. Paste lands the
+  copy offset by a few pixels when it would sit on the original.
+- **Tab / ⇧Tab walk the balloons** on the page, PageDown / PageUp / Home /
+  End walk the pages, Return starts editing the selected balloon, ⌥⌘P / I /
+  J toggle the thumbnails, Format and Document panes, ⌥⌘0 is Actual Size.
+- **Hotkey fixes found on the way.** The single-letter tool hotkeys (H, V,
+  T, P) no longer fire when ⌘ is held, so ⌘V pastes instead of switching to
+  the frame tool. ⌥ chords read the physical key (`e.code`) because macOS
+  reports dead-key glyphs for ⌥-letters.
+
+### Template chooser
+
+- **New documents start from a Pages-style sheet** with Manga and Clinic
+  brochure categories, template cards that cascade in, paper size and
+  reading-direction controls, arrow-key navigation, Return and double-click
+  to choose. The last choice is remembered. Read mode is left when a new
+  document starts.
+
+### Read mode motion
+
+- **The reader rises over the editor and fades back** instead of swapping
+  views; the editor stays mounted underneath (made `inert` and hidden from
+  assistive tech), so returning to it is instant and the scroll position
+  survives. Page turns push the old sheet out in the reading direction. Zoom
+  steps and double-click ease to the new size while pinch and ⌘-wheel track
+  the hand; the sheet owns the keys so a dialog on top is not driven by them.
+
+### Trackpad zoom in the editor
+
+- **Pinch and ⌘-wheel scale the sheets live under the fingers.** The motion
+  is a GPU transform on the sheet container anchored at the pointer, so no
+  layout runs during the gesture (the earlier per-frame relayout cost 50–66
+  ms a frame on a large page). When the gesture settles, the zoom snaps to
+  Fit or a preset within reach, lands once at the real layout size (so type
+  and ink are redrawn sharp, never stretched), and restores the scroll so the
+  point under the pointer does not move. Zoom steps and ⌘± / ⌘0 / ⌥⌘0 use
+  the same motion.
+- **Wide pages scroll from the left edge.** At numeric zoom the spread
+  container hugs its sheets, so a page wider than the stage no longer loses
+  its left half behind the centred layout.
+
+### Tests
+
+`npm test` passes 137 tests; the same 12 `scripts/` share-card tests fail as
+on the original source. `npx tsc --noEmit` reports only the pre-existing
+errors in `page-rail.tsx`, `error-component.tsx` and `lettering.test.ts`;
+`npx eslint .` reports the same four pre-existing errors; `vite build`
+passes.
