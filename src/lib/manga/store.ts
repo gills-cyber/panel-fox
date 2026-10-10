@@ -28,7 +28,8 @@ import type { SnapGuide } from "./balloons";
 import { roundRect } from "./resize";
 import { clamp, uid } from "@/lib/utils";
 import type { PaperSizeId, OverlayStyle } from "./paper";
-import { DEFAULT_PAPER_SIZE } from "./paper";
+import { DEFAULT_PAPER_SIZE, pageAspect } from "./paper";
+import { LAYOUT_KEYS, fitLetterBox, usesMeasuredFit } from "./fit";
 import { applyTheme, readPrefs, writePrefs } from "./prefs";
 import { makeBrochurePage } from "./brochure";
 import {
@@ -1264,6 +1265,9 @@ export const useStudio = create<StudioState>()(
             text,
             src,
           );
+          // Start the balloon sized around its words, not the kind's stock box.
+          const fitted = fitLetterBox(overlay, pageAspect(state.paperSize), "auto");
+          if (fitted) Object.assign(overlay, fitted);
           const twins = pageOverlays(page).filter((o) => o.kind === kind).length;
           overlay.x = Math.min(100 - overlay.w, overlay.x + twins * 5);
           overlay.y = Math.min(100 - overlay.h, overlay.y + twins * 6);
@@ -1396,10 +1400,25 @@ export const useStudio = create<StudioState>()(
               l.id === current.scriptLineId ? { ...l, text: patch.text ?? l.text } : l,
             );
           }
+          let merged: Overlay = { ...current, ...patch };
+          // Lettering changed: size the balloon around the words (never the words around the balloon).
+          if (
+            usesMeasuredFit(merged) &&
+            LAYOUT_KEYS.some((k) => k in patch) &&
+            !("w" in patch || "h" in patch)
+          ) {
+            const box = fitLetterBox(
+              merged,
+              pageAspect(s.paperSize),
+              merged.autoFit === false ? "grow" : "auto",
+              current,
+            );
+            if (box) merged = { ...merged, ...box };
+          }
           const pages = patchPage(s.pages, s.currentPageId, (page) => ({
             ...page,
             overlays: pageOverlays(page).map((o) =>
-              o.id === id ? { ...o, ...patch } : o,
+              o.id === id ? merged : o,
             ),
           }));
           if (live) {
@@ -1842,7 +1861,14 @@ export const useStudio = create<StudioState>()(
                 const updated = { ...o };
                 if (patch.text != null) {
                   updated.text = patch.text;
-                  if (updated.autoFit !== false) {
+                  const box = fitLetterBox(
+                    updated,
+                    pageAspect(s.paperSize),
+                    updated.autoFit === false ? "grow" : "auto",
+                    o,
+                  );
+                  if (box) Object.assign(updated, box);
+                  else if (updated.autoFit !== false) {
                     const size = fitBubbleSize({ ...updated, text: patch.text });
                     updated.w = size.w;
                     updated.h = size.h;
@@ -1899,9 +1925,13 @@ export const useStudio = create<StudioState>()(
           );
           overlay.scriptLineId = line.id;
           overlay.speakerId = line.speakerId ?? undefined;
-          const size = fitBubbleSize(overlay);
-          overlay.w = size.w;
-          overlay.h = size.h;
+          const box = fitLetterBox(overlay, pageAspect(s.paperSize), "auto");
+          if (box) Object.assign(overlay, box);
+          else {
+            const size = fitBubbleSize(overlay);
+            overlay.w = size.w;
+            overlay.h = size.h;
+          }
           overlay.x = clamp(overlay.x, 0, 100 - overlay.w);
           overlay.y = clamp(overlay.y, 0, 100 - overlay.h);
           commit({

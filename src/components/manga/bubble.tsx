@@ -23,6 +23,8 @@ import { BalloonPaintControls } from "@/components/manga/balloon-paint";
 import { overlayFontCss, titleUsesOutline } from "@/lib/manga/fonts";
 import { FontFamilyControl } from "@/components/manga/font-family";
 import { useStudio } from "@/lib/manga/store";
+import { fitLetterBox, letterMinBox, usesMeasuredFit } from "@/lib/manga/fit";
+import { pageAspect } from "@/lib/manga/paper";
 import { cn, clamp } from "@/lib/utils";
 import { FontSizeControl } from "@/components/manga/font-size";
 import { ContextMenu } from "@/components/manga/context-menu";
@@ -263,118 +265,11 @@ export function Bubble({
     return () => window.clearTimeout(t);
   }, [selected, textEditing, overlay.id, overlay.kind]);
 
-  useEffect(() => {
-    if (!textEditing || overlay.kind === "sticker" || overlay.kind === "tone") return;
-    if (overlay.autoFit !== false) return;
-    if (liveDrag || drag.current) return;
-    if (growLock.current) return;
-    const el = textRef.current;
-    const pageH = pageEl?.clientHeight ?? 0;
-    if (!el || !pageH || overlay.vertical) return;
-    if (el.clientHeight < 8) return;
-    if (el.scrollHeight <= el.clientHeight + 2) return;
-    const nextH = Math.min(
-      overlay.h + ((el.scrollHeight - el.clientHeight) / pageH) * 100 + 0.4,
-      92 - overlay.y,
-    );
-    if (nextH > overlay.h + 0.15) {
-      growLock.current = true;
-      useStudio.getState().updateOverlay(overlay.id, { h: nextH, autoFit: false });
-      const t = window.setTimeout(() => {
-        growLock.current = false;
-      }, 80);
-      return () => window.clearTimeout(t);
-    }
-  }, [
-    textEditing,
-    overlay.text,
-    overlay.w,
-    overlay.h,
-    overlay.id,
-    overlay.kind,
-    overlay.y,
-    overlay.vertical,
-    overlay.autoFit,
-    liveDrag,
-    pageEl,
-  ]);
-
+  // Type size is fixed by the font size the user picked; the balloon is sized
+  // around the words by the store, so nothing here rescales the lettering.
   useLayoutEffect(() => {
-    const root = rootRef.current;
-    if (!root) return;
-    let raf = 0;
-    const fit = () => {
-      const o = overlayRef.current;
-      if (
-        o.kind === "sticker" ||
-        o.kind === "tone" ||
-        o.kind === "sfx" ||
-        o.kind === "title" ||
-        textEditingRef.current ||
-        liveDragRef.current
-      ) {
-        root.style.setProperty("--fit-scale", "1");
-        return;
-      }
-      const type = root.querySelector<HTMLElement>(".koma-letter-type");
-      if (!type) return;
-      const style = balloonStyleOf(o);
-      const escapes = () => {
-        const box = root.getBoundingClientRect();
-        if (box.width < 8 || box.height < 8) return false;
-        const walker = document.createTreeWalker(type, NodeFilter.SHOW_TEXT);
-        while (walker.nextNode()) {
-          const range = document.createRange();
-          range.selectNodeContents(walker.currentNode);
-          for (const rect of range.getClientRects()) {
-            if (rect.width < 0.5 || rect.height < 0.5) continue;
-            const pts: [number, number][] = [
-              [rect.left, rect.top],
-              [rect.right, rect.top],
-              [rect.left, rect.bottom],
-              [rect.right, rect.bottom],
-            ];
-            if (pts.some(([x, y]) => !pointInBalloon(x, y, box, style, o.kind, 0.98))) {
-              return true;
-            }
-          }
-        }
-        return false;
-      };
-      let s = 1;
-      root.style.setProperty("--fit-scale", "1");
-      for (let i = 0; i < 12 && s > 0.42 && escapes(); i++) {
-        s = Math.max(0.42, s * 0.88);
-        root.style.setProperty("--fit-scale", s.toFixed(3));
-      }
-    };
-    const schedule = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        fit();
-      });
-    };
-    fit();
-    const ro = new ResizeObserver(schedule);
-    ro.observe(root);
-    return () => {
-      ro.disconnect();
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, [
-    overlay.text,
-    overlay.fontSize,
-    overlay.kind,
-    overlay.vertical,
-    overlay.fontId,
-    overlay.bold,
-    overlay.italic,
-    overlay.balloonStyle,
-    overlay.align,
-    textEditing,
-    liveDrag,
-  ]);
+    rootRef.current?.style.setProperty("--fit-scale", "1");
+  }, []);
 
   function cancelHold() {
     if (hold.current != null) {
@@ -569,8 +464,16 @@ export function Bubble({
         applyDraft({ x: snapped.x, y: snapped.y });
       }
     } else if (d.mode === "resize" && d.handle) {
-      const next = resizeOverlay(d.start, d.handle, dx, dy);
+      let next = resizeOverlay(d.start, d.handle, dx, dy);
       const studio = useStudio.getState();
+      const min = letterMinBox({ ...d.start, w: next.w }, pageAspect(studio.paperSize));
+      if (min && (next.w < min.minW || next.h < min.minH)) {
+        const w = Math.max(next.w, min.minW);
+        const h = Math.max(next.h, min.minH);
+        const x = d.handle.includes("w") ? d.start.x + d.start.w - w : next.x;
+        const y = d.handle.includes("n") ? d.start.y + d.start.h - h : next.y;
+        next = { x: clamp(x, 0, 100 - w), y: clamp(y, 0, 100 - h), w, h };
+      }
       const precision = e.altKey || e.metaKey || e.ctrlKey;
       if (!studio.snapEdges || precision) {
         studio.setSnapGuides([]);
@@ -880,37 +783,8 @@ export function Bubble({
               enterKeyHint="done"
               spellCheck={overlay.kind !== "sfx"}
               onChange={(e) => {
-                const text = e.target.value;
-                const patch: Partial<Overlay> = { text };
-                const el = e.currentTarget;
-                if (overlay.autoFit !== false && overlay.kind !== "sticker" && overlay.kind !== "tone") {
-                  const size = fitBubbleSize({ ...overlay, text });
-                  patch.w = size.w;
-                  patch.h = size.h;
-                  if (overlay.kind !== "narration" && overlay.kind !== "text") {
-                    patch.x = clamp(overlay.x + (overlay.w - size.w) / 2, 0, 100 - size.w);
-                    patch.y = clamp(overlay.y + (overlay.h - size.h) / 2, 0, 100 - size.h);
-                  }
-                } else if (
-                  overlay.kind !== "sticker" &&
-                  overlay.kind !== "tone" &&
-                  overlay.kind !== "sfx" &&
-                  !overlay.vertical
-                ) {
-                  const pageH = pageEl?.clientHeight ?? 0;
-                  if (pageH && el.scrollHeight > el.clientHeight + 1) {
-                    patch.h = Math.min(
-                      overlay.h + ((el.scrollHeight - el.clientHeight) / pageH) * 100 + 0.4,
-                      92 - overlay.y,
-                    );
-                  } else {
-                    const nextH = wrapHeightForBox({ ...overlay, text });
-                    if (nextH > overlay.h) {
-                      patch.h = Math.min(nextH, 92 - overlay.y);
-                    }
-                  }
-                }
-                useStudio.getState().updateOverlay(overlay.id, patch);
+                // The store measures the words and sizes the balloon around them.
+                useStudio.getState().updateOverlay(overlay.id, { text: e.target.value });
               }}
               onPointerDown={(e) => e.stopPropagation()}
               onBlur={() => setTextEditing(false)}
@@ -1015,18 +889,7 @@ export function Bubble({
                   compact
                   value={overlay.fontSize}
                   onChange={(fontSize) => {
-                    const patch: Partial<Overlay> = { fontSize };
-                    if (
-                      overlay.autoFit !== false &&
-                      overlay.kind !== "sticker" &&
-                      overlay.kind !== "tone" &&
-                      overlay.kind !== "sfx"
-                    ) {
-                      const size = fitBubbleSize({ ...overlay, fontSize });
-                      patch.w = size.w;
-                      patch.h = size.h;
-                    }
-                    useStudio.getState().updateOverlay(overlay.id, patch);
+                    useStudio.getState().updateOverlay(overlay.id, { fontSize });
                   }}
                 />
               </span>
@@ -1109,13 +972,18 @@ export function Bubble({
                 type="button"
                 aria-label="Fit text"
                 onClick={() => {
-                  const size = fitBubbleSize(overlay);
-                  useStudio.getState().updateOverlay(overlay.id, {
-                    ...size,
-                    autoFit: true,
-                    x: clamp(overlay.x + (overlay.w - size.w) / 2, 0, 100 - size.w),
-                    y: clamp(overlay.y + (overlay.h - size.h) / 2, 0, 100 - size.h),
-                  });
+                  const studio = useStudio.getState();
+                  const box =
+                    fitLetterBox({ ...overlay, autoFit: true }, pageAspect(studio.paperSize), "auto") ??
+                    (() => {
+                      const size = fitBubbleSize(overlay);
+                      return {
+                        ...size,
+                        x: clamp(overlay.x + (overlay.w - size.w) / 2, 0, 100 - size.w),
+                        y: clamp(overlay.y + (overlay.h - size.h) / 2, 0, 100 - size.h),
+                      };
+                    })();
+                  studio.updateOverlay(overlay.id, { ...box, autoFit: true });
                 }}
               >
                 Fit
