@@ -2,14 +2,13 @@ import { memo, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProp
 import { FlipHorizontal2, FlipVertical2 } from "lucide-react";
 import type { Overlay, ResizeHandle, StickerId } from "@/lib/manga/types";
 import { HANDLE_CURSOR } from "@/lib/manga/resize";
-import { glyphWobble, moveOverlay, resizeOverlay, THOUGHT_CLOUD, chainConnectorPath, HEART_PATH, RAGE_PATH, isGlowInk, glowStrength, isDialogue, fitBubbleSize, wrapHeightForBox, speechTailGeom, speechTailPath, thoughtTrail, canRotate, wrapDeg, overlayOpacity, tintsRaster, stickerPaint, STICKER_COLORS, scaleOverlayBy, scaleOverlaySize, LETTER_FONT_MAX, LETTER_FONT_MIN, pageOverlays, letterRefHeight, letterLockHeight, isClearPaint } from "@/lib/manga/lettering";
+import { glyphWobble, moveOverlay, resizeOverlay, THOUGHT_CLOUD, chainConnectorPath, HEART_PATH, RAGE_PATH, isGlowInk, glowStrength, isDialogue, fitBubbleSize, speechTailGeom, speechTailPath, thoughtTrail, canRotate, wrapDeg, overlayOpacity, tintsRaster, stickerPaint, STICKER_COLORS, scaleOverlayBy, scaleOverlaySize, LETTER_FONT_MAX, LETTER_FONT_MIN, pageOverlays, letterRefHeight, letterLockHeight, isClearPaint } from "@/lib/manga/lettering";
 import {
   balloonStyleOf,
   balloonHasTail,
   balloonEllipse,
   balloonUsesTrail,
   balloonTextFrame,
-  pointInBalloon,
   snapMove,
   snapResize,
   extraSnapLines,
@@ -23,13 +22,14 @@ import { BalloonPaintControls } from "@/components/manga/balloon-paint";
 import { overlayFontCss, titleUsesOutline } from "@/lib/manga/fonts";
 import { FontFamilyControl } from "@/components/manga/font-family";
 import { useStudio } from "@/lib/manga/store";
-import { fitLetterBox, letterMinBox, usesMeasuredFit } from "@/lib/manga/fit";
+import { fitLetterBox, letterMinBox } from "@/lib/manga/fit";
 import { pageAspect } from "@/lib/manga/paper";
 import { cn, clamp } from "@/lib/utils";
 import { FontSizeControl } from "@/components/manga/font-size";
 import { ContextMenu } from "@/components/manga/context-menu";
 import { Slider } from "@/components/ui/slider";
 import { scriptOrder, speakerOf } from "@/lib/manga/script";
+import { smartEdit } from "@/lib/manga/typography";
 
 const HANDLES: ResizeHandle[] = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
 
@@ -188,7 +188,23 @@ function BubbleInner({
   liveDragRef.current = liveDrag;
   const textEditingRef = useRef(textEditing);
   textEditingRef.current = textEditing;
-  const growLock = useRef(false);
+  const pendingCaret = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    const at = pendingCaret.current;
+    if (at == null) return;
+    pendingCaret.current = null;
+    const el = textRef.current;
+    if (el && document.activeElement === el) el.setSelectionRange(at, at);
+  }, [overlay.text]);
+
+  // A balloon dropped with a double-click opens for typing straight away.
+  useEffect(() => {
+    const studio = useStudio.getState();
+    if (studio.pendingEditOverlayId !== overlay.id) return;
+    studio.setPendingEditOverlay(null);
+    setTextEditing(true);
+  }, [overlay.id]);
   const [draft, setDraft] = useState<Partial<Overlay> | null>(null);
   const draftRef = useRef<Partial<Overlay> | null>(null);
   const draftRaf = useRef(0);
@@ -492,6 +508,16 @@ function BubbleInner({
     } else if (d.mode === "resize" && d.handle) {
       let next = resizeOverlay(d.start, d.handle, dx, dy);
       const studio = useStudio.getState();
+      if (e.shiftKey && d.start.w > 0 && d.start.h > 0) {
+        // Shift keeps the balloon's proportions while a corner or edge is dragged.
+        const ratio = d.start.w / d.start.h;
+        const w = Math.max(next.w, next.h * ratio);
+        const h = w / ratio;
+        const x = d.handle.includes("w") ? d.start.x + d.start.w - w : next.x;
+        const y = d.handle.includes("n") ? d.start.y + d.start.h - h : next.y;
+        next = { x: clamp(x, 0, 100 - w), y: clamp(y, 0, 100 - h), w, h };
+      }
+      const keepRatio = e.shiftKey;
       const min = letterMinBox({ ...d.start, w: next.w }, pageAspect(studio.paperSize));
       if (min && (next.w < min.minW || next.h < min.minH)) {
         const w = Math.max(next.w, min.minW);
@@ -500,7 +526,7 @@ function BubbleInner({
         const y = d.handle.includes("n") ? d.start.y + d.start.h - h : next.y;
         next = { x: clamp(x, 0, 100 - w), y: clamp(y, 0, 100 - h), w, h };
       }
-      const precision = e.altKey || e.metaKey || e.ctrlKey;
+      const precision = e.altKey || e.metaKey || e.ctrlKey || keepRatio;
       if (!studio.snapEdges || precision) {
         studio.setSnapGuides([]);
         applyDraft(next);
@@ -802,8 +828,12 @@ function BubbleInner({
               enterKeyHint="done"
               spellCheck={overlay.kind !== "sfx"}
               onChange={(e) => {
+                const el = e.currentTarget;
+                // Curly quotes, ellipses and dashes land as you type; the caret stays put.
+                const smart = smartEdit(el.value, el.selectionStart ?? el.value.length);
+                if (smart) pendingCaret.current = smart.caret;
                 // The store measures the words and sizes the balloon around them.
-                useStudio.getState().updateOverlay(overlay.id, { text: e.target.value });
+                useStudio.getState().updateOverlay(overlay.id, { text: smart ? smart.text : el.value });
               }}
               onPointerDown={(e) => e.stopPropagation()}
               onBlur={() => setTextEditing(false)}

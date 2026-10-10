@@ -364,6 +364,11 @@ type StudioState = {
   sendPanelBackward: (id: string) => void;
   resetLayout: () => void;
   addOverlay: (kind: OverlayKind, sticker?: StickerId, text?: string, src?: string) => Overlay;
+  /** Drop a balloon centred on a page point (percent) and open it for typing. */
+  addOverlayAt: (kind: OverlayKind, x: number, y: number, panelId?: string | null) => Overlay;
+  /** Overlay that should open in text-edit mode as soon as it mounts. */
+  pendingEditOverlayId: string | null;
+  setPendingEditOverlay: (id: string | null) => void;
   addChainedOverlay: (fromId?: string | null) => void;
   unchainOverlay: (id?: string | null) => void;
   joinOverlays: (aId: string, bId: string) => void;
@@ -451,6 +456,7 @@ export const useStudio = create<StudioState>()(
         bleed: typeof boot.bleed === "number" ? boot.bleed : 0,
         snapEdges: boot.snapEdges !== false,
         snapGuides: [],
+        pendingEditOverlayId: null,
         spread: Boolean(boot.spread),
         readMode: false,
         theme: boot.theme === "dark" ? "dark" : "light",
@@ -1294,6 +1300,28 @@ export const useStudio = create<StudioState>()(
           });
           return overlay;
         },
+
+        addOverlayAt: (kind, x, y, panelId) => {
+          const state = get();
+          const page = state.currentPage();
+          const boxes = boxesForPage(page, state.margin, state.gutter, state.rtl);
+          const overlay = makeOverlay(kind, boxes, panelId ?? state.selectedPanelId);
+          const fitted = fitLetterBox(overlay, pageAspect(state.paperSize), "auto");
+          if (fitted) Object.assign(overlay, fitted);
+          overlay.x = clamp(x - overlay.w / 2, 0, 100 - overlay.w);
+          overlay.y = clamp(y - overlay.h / 2, 0, 100 - overlay.h);
+          commit({
+            pages: patchPage(state.pages, state.currentPageId, (p) => ({
+              ...p,
+              overlays: [...pageOverlays(p), overlay],
+            })),
+            selectedOverlayId: overlay.id,
+            selectedPanelId: null,
+            pendingEditOverlayId: overlay.id,
+          });
+          return overlay;
+        },
+        setPendingEditOverlay: (pendingEditOverlayId) => set({ pendingEditOverlayId }),
 
         addChainedOverlay: (fromId) => {
           const state = get();

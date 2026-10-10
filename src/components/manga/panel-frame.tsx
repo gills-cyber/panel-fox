@@ -396,6 +396,20 @@ export function PanelFrame({
 
   function handleDoubleClick(e: React.MouseEvent) {
     e.preventDefault();
+    if (readOnly || arranging || (editing && imageTool === "crop")) return;
+    if ((e.target as HTMLElement).closest("[data-overlay-id]")) return;
+    // Double-click on the artwork drops a speech balloon right there, ready to type.
+    const sheet = rootRef.current?.closest<HTMLElement>(".paper-sheet");
+    if (!sheet) return;
+    const r = sheet.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return;
+    e.stopPropagation();
+    useStudio.getState().addOverlayAt(
+      "speech",
+      ((e.clientX - r.left) / r.width) * 100,
+      ((e.clientY - r.top) / r.height) * 100,
+      box.id,
+    );
   }
 
   function handleWheel(e: React.WheelEvent) {

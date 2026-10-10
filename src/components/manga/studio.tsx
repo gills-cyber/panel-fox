@@ -115,6 +115,9 @@ import {
   type PageZoom,
 } from "@/lib/manga/zoom";
 
+/** Quiet time after an edit before the project is written. */
+const AUTOSAVE_SOON_MS = 2500;
+
 type Drawer = "layouts" | "images" | "adjust" | "script" | null;
 type Menu = "layout" | "zoom" | "media" | "stickers" | null;
 type InspectorTab = "format" | "document" | "script";
@@ -235,7 +238,11 @@ export function Studio() {
         return;
       }
       dirty = true;
+      // Save soon after the last edit, not only on the slow interval.
+      window.clearTimeout(soon);
+      soon = window.setTimeout(() => void flush(), AUTOSAVE_SOON_MS);
     };
+    let soon = 0;
     const unsub = useStudio.subscribe(mark);
     async function flush() {
       if (!dirty) return;
@@ -257,6 +264,7 @@ export function Studio() {
     window.addEventListener("pagehide", onHide);
     return () => {
       window.clearInterval(tick);
+      window.clearTimeout(soon);
       unsub();
       document.removeEventListener("visibilitychange", onHide);
       window.removeEventListener("pagehide", onHide);
@@ -2146,7 +2154,24 @@ function InsertFold({
   koma: string;
   children: ReactNode;
 }) {
+  // Folds remember whether you left them open, per browser. Read after mount so
+  // server and client render the same closed fold first.
   const [open, setOpen] = useState(false);
+  const restored = useRef(false);
+  useEffect(() => {
+    try {
+      if (!restored.current) {
+        restored.current = true;
+        if (localStorage.getItem(`koma-fold:${koma}`) === "open") {
+          setOpen(true);
+          return;
+        }
+      }
+      localStorage.setItem(`koma-fold:${koma}`, open ? "open" : "closed");
+    } catch {
+      /* private mode */
+    }
+  }, [koma, open]);
   return (
     <div className="mt-3" data-koma={koma}>
       <button
