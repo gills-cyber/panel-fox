@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { cn, prefersReducedMotion } from "@/lib/utils";
+import { Floating } from "@/components/manga/floating";
 
 export type ContextItem = {
   label?: string;
@@ -141,14 +142,15 @@ export function ContextMenu({
   }
 
   return (
-    <div
+    <Floating
       ref={ref}
+      at={{ x: left, y: top }}
+      offset={0}
       role="menu"
       tabIndex={-1}
-      data-koma-menu
+      data-koma-menu=""
       data-state={closing ? "closing" : "open"}
-      className="fixed z-[100] min-w-[13.5rem] rounded-[12px] bg-surface/92 p-1 shadow-float outline-none backdrop-blur-2xl"
-      style={{ left: Math.max(8, left), top: Math.max(8, top) }}
+      className="min-w-[13.5rem] rounded-[12px] bg-surface/92 p-1 shadow-float outline-none backdrop-blur-2xl"
       onPointerDown={(e) => e.stopPropagation()}
       onKeyDown={onKeyDown}
     >
@@ -179,6 +181,6 @@ export function ContextMenu({
         ),
       )}
       {extra}
-    </div>
+    </Floating>
   );
 }

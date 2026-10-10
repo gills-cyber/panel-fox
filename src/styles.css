@@ -1190,6 +1190,41 @@ img {
   animation: koma-pop-in var(--motion-fast) var(--ease-spring-pop) backwards;
   transform-origin: var(--koma-origin, top left);
 }
+/* A pop-up never leaves the window: its body scrolls when the window is short. */
+.koma-pop-scroll {
+  max-height: calc(var(--koma-avail, 80vh) - 1rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* NSPopover: the arrow is the panel's own material, clipped to a triangle. */
+[data-koma-popover][data-arrow]::before {
+  content: "";
+  position: absolute;
+  left: var(--arrow-x, 50%);
+  top: -7px;
+  width: 14px;
+  height: 14px;
+  translate: -50% 0;
+  rotate: 45deg;
+  border-radius: 2px;
+  background: inherit;
+  backdrop-filter: inherit;
+  -webkit-backdrop-filter: inherit;
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+  box-shadow: inset 0.5px 0.5px 0 0 rgb(0 0 0 / 0.14);
+}
+[data-koma-popover][data-arrow="bottom"]::before {
+  top: auto;
+  bottom: -7px;
+  clip-path: polygon(100% 100%, 100% 0, 0 100%);
+  box-shadow: inset -0.5px -0.5px 0 0 rgb(0 0 0 / 0.14);
+}
+[data-theme="dark"] [data-koma-popover][data-arrow]::before {
+  box-shadow: inset 0.5px 0.5px 0 0 rgb(255 255 255 / 0.14);
+}
+[data-theme="dark"] [data-koma-popover][data-arrow="bottom"]::before {
+  box-shadow: inset -0.5px -0.5px 0 0 rgb(255 255 255 / 0.14);
+}
 
 [data-koma-dialog] {
   transform-origin: center center;

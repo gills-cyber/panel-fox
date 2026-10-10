@@ -11,6 +11,7 @@ import { Check } from "lucide-react";
 import { cn, prefersReducedMotion } from "@/lib/utils";
 import { combo, useApplePlatform } from "@/lib/manga/hotkeys";
 import { useStudio } from "@/lib/manga/store";
+import { Floating } from "@/components/manga/floating";
 import { insertTitle } from "@/lib/manga/actions";
 import { pageOverlays, isDialogue } from "@/lib/manga/lettering";
 
@@ -151,7 +152,7 @@ function AppMenuInner({
   useEffect(() => {
     function close(e: PointerEvent) {
       const t = e.target;
-      if (t instanceof Element && t.closest("[data-koma-menubar]")) return;
+      if (t instanceof Element && t.closest("[data-koma-menubar],[data-koma-menu]")) return;
       setOpen(null);
     }
     function onKey(e: KeyboardEvent) {
@@ -606,6 +607,7 @@ function MenuBtn({
   children: ReactNode;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
   const [closing, setClosing] = useState(false);
   const wasOpen = useRef(open);
 
@@ -661,6 +663,7 @@ function MenuBtn({
   return (
     <div className="relative">
       <button
+        ref={btnRef}
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -680,18 +683,21 @@ function MenuBtn({
         {label}
       </button>
       {open || closing ? (
-        <div
+        <Floating
           ref={panelRef}
+          anchor={btnRef.current}
+          align="start"
+          offset={4}
           role="menu"
           tabIndex={-1}
-          data-koma-menu
+          data-koma-menu=""
           data-state={open ? "open" : "closing"}
-          className="absolute left-0 top-[26px] z-50 min-w-[16rem] rounded-[12px] bg-surface/92 p-1.5 shadow-float outline-none backdrop-blur-2xl"
+          className="min-w-[16rem] rounded-[12px] bg-surface/92 p-1.5 shadow-float outline-none backdrop-blur-2xl"
           onPointerDown={(e) => e.stopPropagation()}
           onKeyDown={onKeyDown}
         >
           {children}
-        </div>
+        </Floating>
       ) : null}
     </div>
   );

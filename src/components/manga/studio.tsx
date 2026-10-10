@@ -63,6 +63,7 @@ import {
 import { TemplateThumb } from "@/components/manga/template-thumb";
 import { StickerMark } from "@/components/manga/bubble";
 import { AppMenu } from "@/components/manga/app-menu";
+import { Floating } from "@/components/manga/floating";
 import { ExportDialog } from "@/components/manga/export-dialog";
 import { Reader } from "@/components/manga/reader";
 import { ScriptPanel } from "@/components/manga/script-panel";
@@ -155,6 +156,7 @@ export function Studio() {
   const pickFor = useRef<string | null>(null);
   const [drawer, setDrawer] = useState<Drawer>(null);
   const [menu, setMenu] = useState<Menu>(null);
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [stickerTab, setStickerTab] = useState<StickerTab>("clinic");
   const [tab, setTab] = useState<InspectorTab>("format");
   const [thumbs, setThumbs] = useState(true);
@@ -324,7 +326,10 @@ export function Studio() {
     if (!menu) return;
     function close(e: PointerEvent) {
       const t = e.target;
-      if (t instanceof Element && t.closest("[data-koma-menu],[data-koma-menu-btn]")) {
+      if (
+        t instanceof Element &&
+        t.closest("[data-koma-menu],[data-koma-popover],[data-koma-menu-btn]")
+      ) {
         return;
       }
       setMenu(null);
@@ -667,6 +672,7 @@ export function Studio() {
               active={menu === "title"}
               onClick={(e) => {
                 e.stopPropagation();
+                setMenuAnchor(e.currentTarget);
                 setMenu(menu === "title" ? null : "title");
               }}
               menu
@@ -726,6 +732,7 @@ export function Studio() {
               active={menu === "layout"}
               onClick={(e) => {
                 e.stopPropagation();
+                setMenuAnchor(e.currentTarget);
                 setMenu(menu === "layout" ? null : "layout");
               }}
               menu
@@ -738,6 +745,7 @@ export function Studio() {
               active={menu === "media"}
               onClick={(e) => {
                 e.stopPropagation();
+                setMenuAnchor(e.currentTarget);
                 setMenu(menu === "media" ? null : "media");
               }}
               menu
@@ -780,6 +788,7 @@ export function Studio() {
               active={menu === "stickers"}
               onClick={(e) => {
                 e.stopPropagation();
+                setMenuAnchor(e.currentTarget);
                 if (menu !== "stickers") {
                   setStickerTab(
                     page.templateId.startsWith("brochure") ? "clinic" : stickerTab,
@@ -831,7 +840,10 @@ export function Studio() {
               data-koma-menu-btn=""
               className="koma-press hidden h-8 min-w-11 items-center justify-center gap-1 rounded-[7px] px-2 text-[12px] font-medium tabular-nums text-ink-soft hover:bg-ink/6 hover:text-ink sm:flex md:min-w-[3rem]"
               onPointerDown={(e) => e.stopPropagation()}
-              onClick={() => setMenu(menu === "zoom" ? null : "zoom")}
+              onClick={(e) => {
+                setMenuAnchor(e.currentTarget);
+                setMenu(menu === "zoom" ? null : "zoom");
+              }}
             >
               {zoomLabel}
               <ChevronDown className="hidden size-3 text-muted sm:block" strokeWidth={2.25} />
@@ -846,7 +858,7 @@ export function Studio() {
               <ZoomIn />
             </ToolTipBtn>
             {menu === "zoom" ? (
-              <MenuPanel className="right-0 w-28">
+              <MenuPanel anchor={menuAnchor} align="end" className="w-28">
                 {ZOOM_PRESETS.map((opt) => (
                   <button
                     key={String(opt.id)}
@@ -930,7 +942,7 @@ export function Studio() {
         </div>
 
         {menu === "title" ? (
-          <MenuPanel className="left-14 top-[50px] w-60 p-1" role="menu">
+          <MenuPanel anchor={menuAnchor} className="w-60 p-1" role="menu">
             <PanelItem
               label="Rename"
               onClick={(el) =>
@@ -992,7 +1004,12 @@ export function Studio() {
         ) : null}
 
         {menu === "layout" ? (
-          <MenuPanel className="left-1/2 top-12 w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2">
+          <MenuPanel
+            anchor={menuAnchor}
+            align="center"
+            arrow
+            className="w-[min(40rem,calc(100vw-2rem))]"
+          >
             <p className="px-2 pb-2 text-xs font-medium text-muted">
               Manga pages
             </p>
@@ -1029,7 +1046,7 @@ export function Studio() {
         ) : null}
 
         {menu === "media" ? (
-          <MenuPanel className="left-1/2 top-12 w-80 -translate-x-1/2">
+          <MenuPanel anchor={menuAnchor} align="center" arrow className="w-80">
             <p className="px-2 pb-2 text-xs font-medium text-muted">
               Sample art
             </p>
@@ -1058,7 +1075,12 @@ export function Studio() {
           </MenuPanel>
         ) : null}
         {menu === "stickers" ? (
-          <MenuPanel className="left-1/2 top-12 w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2">
+          <MenuPanel
+            anchor={menuAnchor}
+            align="center"
+            arrow
+            className="w-[min(22rem,calc(100vw-2rem))]"
+          >
             <div className="mb-2 flex rounded-md bg-ink/5 p-0.5">
               {(
                 [
@@ -1825,28 +1847,40 @@ function PanelItem({
   );
 }
 
+/** Toolbar pop-ups: a plain menu fades in; a popover grows from its arrow. */
 function MenuPanel({
   children,
   className,
   role,
+  anchor,
+  align = "start",
+  arrow,
 }: {
   children: ReactNode;
   className?: string;
   role?: string;
+  anchor: HTMLElement | null;
+  align?: "start" | "center" | "end";
+  arrow?: boolean;
 }) {
   return (
-    <div
+    <Floating
+      anchor={anchor}
+      align={align}
+      offset={arrow ? 12 : 4}
+      arrow={arrow}
       role={role}
+      data-koma-menu={arrow ? undefined : ""}
+      data-koma-popover={arrow ? "" : undefined}
       className={cn(
-        "absolute top-11 z-40 rounded-[14px] bg-surface/92 p-2 shadow-float backdrop-blur-2xl koma-pop-in",
+        "rounded-[14px] bg-surface/92 p-2 shadow-float backdrop-blur-2xl",
         className,
       )}
-      data-koma-menu
       onPointerDown={(e) => e.stopPropagation()}
       onPointerUp={(e) => e.stopPropagation()}
     >
-      {children}
-    </div>
+      <div className="koma-pop-scroll">{children}</div>
+    </Floating>
   );
 }
 
