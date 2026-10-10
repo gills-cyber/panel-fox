@@ -8,6 +8,7 @@ import {
   Bold,
   Check,
   ChevronDown,
+  ChevronRight,
   Cloud,
   FileText,
   FolderOpen,
@@ -595,7 +596,7 @@ export function Studio() {
         onZoomFit={() => setZoom("fit")}
       />
 
-      <header className="koma-glass relative z-40 flex h-14 min-h-14 max-h-14 shrink-0 items-center gap-1 overflow-visible border-b border-line/70 px-2 sm:px-3 md:h-12 md:min-h-12 md:max-h-12">
+      <header className="koma-glass relative z-40 flex h-14 min-h-14 max-h-14 shrink-0 items-center gap-1 overflow-visible border-b border-line/70 px-2 sm:px-3 md:h-[52px] md:min-h-[52px] md:max-h-[52px]">
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
           <ToolTipBtn
             label="Page thumbnails"
@@ -605,25 +606,31 @@ export function Studio() {
           >
             <PanelLeft />
           </ToolTipBtn>
+          <ToolSep />
           <button
             type="button"
             data-koma="project-chip"
             title="Open project library"
             onClick={() => setProjectsOpen(true)}
-            className="flex min-w-0 max-w-[11rem] items-center gap-1.5 rounded-[8px] px-1.5 py-1 text-left hover:bg-ink/5"
+            className="flex min-w-0 max-w-[9rem] items-center gap-1.5 rounded-[6px] px-1.5 py-1 text-left hover:bg-ink/6 lg:max-w-[13rem]"
           >
-            <FolderOpen className="size-3.5 shrink-0 text-muted" />
-            <span className="min-w-0 truncate text-sm font-medium">
+            <FileText className="size-3.5 shrink-0 text-muted" />
+            <span className="min-w-0 truncate text-[13px] font-semibold tracking-[-0.01em]">
               {projectName || "Untitled"}
             </span>
             <span
               data-koma="autosave"
               data-interval={String(AUTOSAVE_MS)}
-              className="hidden shrink-0 text-[10px] font-normal text-muted sm:inline"
+              className="hidden shrink-0 text-[11px] font-normal text-muted lg:inline"
             >
-              {projectId || savedAt ? "Autosave on" : "unsaved"}
+              {projectId || savedAt ? "" : "— Unsaved"}
             </span>
           </button>
+          <span className="hidden min-w-0 items-center gap-1 sm:flex">
+            <ChevronRight aria-hidden className="size-3 shrink-0 text-faint" />
+            <PageTitle />
+          </span>
+          <ToolSep />
           <ToolGroup>
             <ToolTipBtn
               label="Undo"
@@ -642,13 +649,13 @@ export function Studio() {
               <Redo2 />
             </ToolTipBtn>
           </ToolGroup>
-          <PageTitle />
         </div>
 
         <div className="hidden shrink-0 items-center md:flex">
           <ToolGroup>
             <ToolTipBtn
               label="Layouts"
+              caption="Layouts"
               active={menu === "layout"}
               onClick={(e) => {
                 e.stopPropagation();
@@ -660,6 +667,7 @@ export function Studio() {
             </ToolTipBtn>
             <ToolTipBtn
               label="Media"
+              caption="Media"
               active={menu === "media"}
               onClick={(e) => {
                 e.stopPropagation();
@@ -671,30 +679,35 @@ export function Studio() {
             </ToolTipBtn>
             <ToolTipBtn
               label="Speech bubble"
+              caption="Speech"
               onClick={() => useStudio.getState().addOverlay("speech")}
             >
               <MessageCircle />
             </ToolTipBtn>
             <ToolTipBtn
               label="Thought bubble"
+              caption="Thought"
               onClick={() => useStudio.getState().addOverlay("thought")}
             >
               <Cloud />
             </ToolTipBtn>
             <ToolTipBtn
               label="Narration box"
+              caption="Caption"
               onClick={() => useStudio.getState().addOverlay("narration")}
             >
               <RectangleHorizontal />
             </ToolTipBtn>
             <ToolTipBtn
               label="Title"
+              caption="Title"
               onClick={() => insertTitle()}
             >
               <Type />
             </ToolTipBtn>
             <ToolTipBtn
               label="Stickers"
+              caption="Stickers"
               active={menu === "stickers"}
               onClick={(e) => {
                 e.stopPropagation();
@@ -712,7 +725,7 @@ export function Studio() {
           </ToolGroup>
         </div>
 
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5 sm:gap-2">
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
           <ToolGroup className="md:hidden">
             <ToolTipBtn
               label="Speech bubble"
@@ -737,6 +750,7 @@ export function Studio() {
             <ToolTipBtn
               label="Zoom out"
               koma="zoom-out"
+              className="hidden lg:flex md:min-w-8 md:px-1"
               onClick={() => setZoom((z) => stepZoom(z, -1))}
             >
               <ZoomOut />
@@ -745,16 +759,17 @@ export function Studio() {
               type="button"
               data-koma="zoom-menu"
               data-koma-menu-btn=""
-              className="flex h-8 min-w-11 items-center justify-center gap-1 rounded-[8px] bg-surface/90 px-2 text-xs font-medium shadow-tool ring-1 ring-line/50 hover:bg-paper-white md:min-w-[3.5rem] md:px-3"
+              className="koma-press hidden h-8 min-w-11 items-center justify-center gap-1 rounded-[7px] px-2 text-[12px] font-medium tabular-nums text-ink-soft hover:bg-ink/6 hover:text-ink sm:flex md:min-w-[3rem]"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={() => setMenu(menu === "zoom" ? null : "zoom")}
             >
               {zoomLabel}
-              <ChevronDown className="hidden size-3 text-muted sm:block" />
+              <ChevronDown className="hidden size-3 text-muted sm:block" strokeWidth={2.25} />
             </button>
             <ToolTipBtn
               label="Zoom in"
               koma="zoom-in"
+              className="hidden lg:flex md:min-w-8 md:px-1"
               onClick={() => setZoom((z) => stepZoom(z, 1))}
             >
               <ZoomIn />
@@ -788,38 +803,32 @@ export function Studio() {
             ) : null}
           </div>
 
-          <button
-            type="button"
-            data-koma="read-open"
-            title="Read (R)"
-            aria-label="Read"
-            aria-pressed={readMode}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => useStudio.getState().toggleReadMode()}
-            className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-ink px-2.5 text-[13px] font-semibold text-surface transition-[background-color,transform] duration-[var(--motion-quick)] hover:bg-ink/90 active:scale-[0.96] sm:px-3.5"
-          >
-            <BookOpen className="size-4" />
-            <span className="hidden sm:inline">Read</span>
-          </button>
-
+          <ToolSep />
           <ToolTipBtn
-            label="Projects"
-            koma="projects-open"
-            onClick={() => setProjectsOpen(true)}
+            label="Read"
+            caption="Read"
+            koma="read-open"
+            className="hidden md:flex"
+            active={readMode}
+            ariaPressed={readMode}
+            onClick={() => useStudio.getState().toggleReadMode()}
           >
-            <FolderOpen />
+            <BookOpen className="text-accent" />
           </ToolTipBtn>
 
           <ToolTipBtn
             label="Export"
+            caption="Export"
             onClick={() => setExportOpen(true)}
           >
             <Share />
           </ToolTipBtn>
 
+          <ToolSep className="hidden md:block" />
           <ToolGroup className="hidden md:flex">
             <ToolTipBtn
               label="Format"
+              caption="Format"
               active={tab === "format"}
               onClick={() => setTab("format")}
             >
@@ -827,6 +836,7 @@ export function Studio() {
             </ToolTipBtn>
             <ToolTipBtn
               label="Script"
+              caption="Script"
               koma="script-open"
               active={tab === "script"}
               onClick={() => setTab("script")}
@@ -835,6 +845,7 @@ export function Studio() {
             </ToolTipBtn>
             <ToolTipBtn
               label="Document"
+              caption="Document"
               active={tab === "document"}
               onClick={() => setTab("document")}
             >
@@ -1368,7 +1379,11 @@ function PageTitle() {
     const page = s.pages.find((p) => p.id === s.currentPageId) ?? s.pages[0];
     return page?.title ?? "";
   });
-  const display = pageTitle({ title: raw });
+  const fallback = useStudio((s) =>
+    pageLabel(s.pages, s.currentPageId, s.book.coverFirst),
+  );
+  const named = pageTitle({ title: raw });
+  const display = named === "Untitled" ? fallback : named;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(display);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1379,7 +1394,10 @@ function PageTitle() {
   }, [display, editing]);
 
   function commit() {
-    useStudio.getState().setPageTitle(draft.trim() || "Untitled");
+    const next = draft.trim();
+    useStudio
+      .getState()
+      .setPageTitle(next === "" || next === fallback ? "Untitled" : next);
     setEditing(false);
   }
 
@@ -1406,7 +1424,7 @@ function PageTitle() {
           e.stopPropagation();
           startEditing();
         }}
-        className="relative z-10 max-w-full min-h-11 min-w-0 truncate rounded-sm px-1.5 py-1 text-left text-base font-medium tracking-tight hover:bg-ink/5 md:text-sm"
+        className="relative z-10 max-w-full min-h-11 min-w-0 truncate rounded-[5px] px-1.5 py-1 text-left text-base font-medium tracking-tight text-ink-soft hover:bg-ink/6 hover:text-ink md:min-h-8 md:text-[13px] md:font-normal"
       >
         {display}
       </button>
@@ -1440,7 +1458,7 @@ function PageTitle() {
           setEditing(false);
         }
       }}
-      className="relative z-20 h-11 w-44 rounded-sm bg-surface px-1.5 text-base font-medium tracking-tight shadow-tool outline-none ring-2 ring-accent md:h-8 md:text-sm"
+      className="relative z-20 h-11 w-44 rounded-[5px] bg-surface px-1.5 text-base font-medium tracking-tight outline-none ring-2 ring-accent/60 md:h-7 md:text-[13px] md:font-normal"
     />
   );
 }
@@ -1452,21 +1470,25 @@ function ToolGroup({
   children: ReactNode;
   className?: string;
 }) {
+  return <div className={cn("flex items-center gap-0.5", className)}>{children}</div>;
+}
+
+/** Hairline between toolbar groups, like NSToolbarItem.Identifier.space with a separator. */
+function ToolSep({ className }: { className?: string }) {
   return (
-    <div
-      className={cn(
-        "flex items-center rounded-[10px] bg-surface/80 p-0.5 shadow-tool ring-1 ring-line/60 backdrop-blur-md",
-        className,
-      )}
-    >
-      {children}
-    </div>
+    <span
+      aria-hidden
+      className={cn("mx-1 hidden h-5 w-px shrink-0 bg-line md:block", className)}
+    />
   );
 }
 
+/** Keynote-style toolbar item: icon with a caption under it on wide windows. */
 function ToolTipBtn({
   label,
+  caption,
   active,
+  ariaPressed,
   onClick,
   children,
   className,
@@ -1475,7 +1497,9 @@ function ToolTipBtn({
   disabled,
 }: {
   label: string;
+  caption?: string;
   active?: boolean;
+  ariaPressed?: boolean;
   onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
   children: ReactNode;
   className?: string;
@@ -1488,6 +1512,7 @@ function ToolTipBtn({
       type="button"
       aria-label={label}
       title={label}
+      aria-pressed={ariaPressed}
       data-koma={koma}
       data-koma-menu-btn={menu ? "" : undefined}
       disabled={disabled}
@@ -1495,13 +1520,19 @@ function ToolTipBtn({
       onPointerDown={(e) => e.stopPropagation()}
       onClick={onClick}
       className={cn(
-        "flex size-11 shrink-0 items-center justify-center rounded-[8px] text-ink transition-colors duration-[var(--motion-quick)] [&>svg]:size-5 md:size-8 md:[&>svg]:size-4",
-        active ? "bg-ink/10" : "hover:bg-ink/6 active:bg-ink/10",
-        disabled && "opacity-35",
+        "koma-press flex size-11 shrink-0 flex-col items-center justify-center gap-[3px] rounded-[7px] text-ink-soft transition-[background-color,color] duration-[var(--motion-quick)] ease-[var(--ease-out)] [&>svg]:size-5 [&>svg]:[stroke-width:1.75] md:h-9 md:w-auto md:min-w-9 md:px-1.5 md:[&>svg]:size-[18px] xl:h-10 xl:px-2",
+        caption && "xl:min-w-[3.25rem]",
+        active ? "bg-ink/10 text-ink" : "hover:bg-ink/6 hover:text-ink",
+        disabled && "opacity-35 hover:bg-transparent hover:text-ink-soft",
         className,
       )}
     >
       {children}
+      {caption ? (
+        <span className="hidden text-[11px] font-medium leading-none xl:block">
+          {caption}
+        </span>
+      ) : null}
     </button>
   );
 }

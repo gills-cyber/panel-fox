@@ -200,7 +200,7 @@ function AppMenuInner({
   return (
     <div
       data-koma-menubar
-      className="koma-glass relative z-50 hidden h-[1.75rem] shrink-0 items-center gap-0 border-b border-line/70 px-1.5 text-[13px] text-ink md:flex"
+      className="koma-glass relative z-50 hidden h-[1.75rem] shrink-0 items-center gap-0 px-1.5 text-[13px] text-ink md:flex"
     >
       <MenuBtn
         id="file"

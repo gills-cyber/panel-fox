@@ -442,6 +442,18 @@ img {
   background: rgb(255 255 255 / 0.14);
 }
 
+/* Press feedback shared by toolbar items: a quick dip, a springy release. */
+.koma-press {
+  transition:
+    scale 120ms var(--ease-out),
+    background-color var(--motion-quick) var(--ease-out),
+    color var(--motion-quick) var(--ease-out);
+}
+.koma-press:active:not(:disabled) {
+  scale: 0.96;
+  transition-duration: 80ms;
+}
+
 .koma-sep {
   width: 1px;
   height: 1.15rem;
