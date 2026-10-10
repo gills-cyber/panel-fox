@@ -64,6 +64,7 @@ import {
 import { TemplateThumb } from "@/components/manga/template-thumb";
 import { StickerMark } from "@/components/manga/bubble";
 import { AppMenu } from "@/components/manga/app-menu";
+import { CommandPalette } from "@/components/manga/command-palette";
 import { Floating } from "@/components/manga/floating";
 import { ExportDialog } from "@/components/manga/export-dialog";
 import { Reader } from "@/components/manga/reader";
@@ -168,6 +169,7 @@ export function Studio() {
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveAsCopy, setSaveAsCopy] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
+  const [cmdOpen, setCmdOpen] = useState(false);
   const [ghost, setGhost] = useState<{
     src: string;
     x: number;
@@ -353,8 +355,23 @@ export function Studio() {
       );
     }
     function onKey(e: KeyboardEvent) {
+      // ⌘K (or ⌘⇧P) toggles the command palette; it closes itself too, but
+      // another sheet keeps the keyboard, and the reader has no palette.
+      const dialog = document.querySelector("[data-koma-dialog]");
+      if (
+        modKey(e) &&
+        !e.altKey &&
+        ((e.key.toLowerCase() === "k" && !e.shiftKey) ||
+          (e.key.toLowerCase() === "p" && e.shiftKey))
+      ) {
+        if (dialog && dialog.getAttribute("data-koma-dialog") !== "commands") return;
+        if (useStudio.getState().readMode) return;
+        e.preventDefault();
+        setCmdOpen((v) => !v);
+        return;
+      }
       // A sheet owns the keyboard while it is up (Radix handles Esc and Return).
-      if (document.querySelector("[data-koma-dialog]")) return;
+      if (dialog) return;
       if (useStudio.getState().readMode) {
         const used = handleStudioHotkey(e);
         if (used && e.key === "Escape") {
@@ -651,6 +668,7 @@ export function Studio() {
         onZoomIn={() => setZoom((z) => stepZoom(z, 1))}
         onZoomOut={() => setZoom((z) => stepZoom(z, -1))}
         onZoomFit={() => setZoom("fit")}
+        onCommands={() => setCmdOpen(true)}
       />
 
       <header className="koma-glass relative z-40 flex h-14 min-h-14 max-h-14 shrink-0 items-center gap-1 overflow-visible border-b border-line/70 px-2 sm:px-3 md:h-[52px] md:min-h-[52px] md:max-h-[52px]">
@@ -1524,6 +1542,44 @@ export function Studio() {
         }}
       />
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
+      <CommandPalette
+        open={cmdOpen}
+        onOpenChange={setCmdOpen}
+        ctx={{
+          apple,
+          thumbs,
+          onThumbs: () => setThumbs((v) => !v),
+          onExport: () => setExportOpen(true),
+          onImport: () => openPicker(),
+          onSave: handleSave,
+          onSaveAs: handleSaveAs,
+          onOpen: () => setProjectsOpen(true),
+          onRename: () => setRenameTick((n) => n + 1),
+          onNew: handleNew,
+          onNewBrochure: handleNewBrochure,
+          onDownloadProject: () => downloadProjectFile(),
+          onScript: () => setTab("script"),
+          onRead: () => useStudio.getState().toggleReadMode(),
+          spread,
+          onSpread: () => useStudio.getState().setSpread(!spread),
+          theme,
+          onTheme: () =>
+            useStudio.getState().setTheme(theme === "dark" ? "light" : "dark"),
+          onZoomIn: () => setZoom((z) => stepZoom(z, 1)),
+          onZoomOut: () => setZoom((z) => stepZoom(z, -1)),
+          onZoomFit: () => setZoom("fit"),
+          onSwitchProject: (id) => {
+            void switchToProject(id)
+              .then((r) => {
+                if (r.switched)
+                  toast.success(`Opened “${useStudio.getState().projectName}”`);
+              })
+              .catch((err) =>
+                toast.error(err instanceof Error ? err.message : "Could not open project"),
+              );
+          },
+        }}
+      />
     </div>
   );
 }

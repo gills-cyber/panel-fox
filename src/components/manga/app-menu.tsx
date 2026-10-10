@@ -7,7 +7,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
-import { Check } from "lucide-react";
+import { Check, Search } from "lucide-react";
 import { cn, prefersReducedMotion } from "@/lib/utils";
 import { combo, useApplePlatform } from "@/lib/manga/hotkeys";
 import { useStudio } from "@/lib/manga/store";
@@ -109,6 +109,7 @@ function AppMenuInner({
   onZoomIn,
   onZoomOut,
   onZoomFit,
+  onCommands,
 }: {
   thumbs: boolean;
   onThumbs: () => void;
@@ -130,6 +131,7 @@ function AppMenuInner({
   onZoomIn: () => void;
   onZoomOut: () => void;
   onZoomFit: () => void;
+  onCommands: () => void;
 }) {
   const [open, setOpen] = useState<MenuId>(null);
   const past = useStudio((s) => s.past.length);
@@ -581,7 +583,27 @@ function AppMenuInner({
           label={theme === "dark" ? "Light Appearance" : "Dark Appearance"}
           onClick={() => run(onTheme)}
         />
+        <Divider />
+        <Item
+          label="Any Command…"
+          keys={k("K", { cmd: true })}
+          onClick={() => run(onCommands)}
+        />
       </MenuBtn>
+      <button
+        type="button"
+        aria-label="Search commands"
+        title={`Any Command… ${k("K", { cmd: true })}`}
+        data-koma="menu-search"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={() => {
+          setOpen(null);
+          onCommands();
+        }}
+        className="koma-press ml-auto flex size-[22px] items-center justify-center rounded-[4px] text-ink/80 hover:bg-ink/6 hover:text-ink"
+      >
+        <Search className="size-[15px]" strokeWidth={1.9} />
+      </button>
     </div>
   );
 }

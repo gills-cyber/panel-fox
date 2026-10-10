@@ -1371,6 +1371,63 @@ img {
   }
 }
 
+/* Command palette: Spotlight's window, it springs in a touch below its rest. */
+.koma-palette {
+  translate: -50% 0;
+  transform-origin: top center;
+}
+.koma-palette[data-state="open"] {
+  animation: koma-palette-in 200ms var(--ease-spring-pop) both;
+}
+.koma-palette[data-state="closed"] {
+  animation: koma-palette-out 120ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@keyframes koma-palette-in {
+  from {
+    opacity: 0;
+    translate: -50% -10px;
+    scale: 0.97;
+  }
+}
+@keyframes koma-palette-out {
+  to {
+    opacity: 0;
+    scale: 0.985;
+  }
+}
+.koma-palette-scrim {
+  background: rgb(0 0 0 / 0.12);
+}
+.koma-palette-scrim[data-state="open"] {
+  animation: koma-fade-in 160ms var(--ease-out) both;
+}
+.koma-palette-scrim[data-state="closed"] {
+  animation: koma-fade-out 120ms var(--ease-out) forwards;
+}
+.koma-palette [cmdk-group-heading] {
+  padding: 8px 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--color-muted);
+  user-select: none;
+}
+.koma-palette [cmdk-group] + [cmdk-group] {
+  margin-top: 2px;
+}
+.koma-palette [cmdk-list] {
+  height: min(var(--cmdk-list-height, 24rem), 100%);
+  transition: height var(--motion-quick) var(--ease-out);
+}
+.koma-palette-item .koma-keys {
+  font-feature-settings: "tnum";
+}
+@media (max-width: 640px) {
+  .koma-palette {
+    top: 3rem;
+  }
+}
+
 /* Toasts are a HUD bezel at the bottom of the window, not a banner. */
 [data-sonner-toast].koma-toast {
   --normal-bg: rgb(32 32 36 / 0.82);
@@ -1776,7 +1833,9 @@ img {
   .koma-template-card,
   .koma-edited,
   .koma-sheet,
-  .koma-sheet-scrim {
+  .koma-sheet-scrim,
+  .koma-palette,
+  .koma-palette-scrim {
     animation: none !important;
   }
   .koma-reader-sheet.is-out {
@@ -1785,7 +1844,8 @@ img {
   .koma-thumb-sheet,
   .koma-page-zoom,
   .koma-thumb-more,
-  .koma-menu-item {
+  .koma-menu-item,
+  .koma-palette [cmdk-list] {
     transition: none !important;
   }
 }
