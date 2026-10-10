@@ -23,6 +23,7 @@ import { overlayFontCss, titleUsesOutline } from "@/lib/manga/fonts";
 import { FontFamilyControl } from "@/components/manga/font-family";
 import { useStudio } from "@/lib/manga/store";
 import { fitLetterBox, letterMinBox } from "@/lib/manga/fit";
+import { inkBody, inkPuff, inkSeed, inkTail, type InkBox } from "@/lib/manga/ink";
 import { pageAspect } from "@/lib/manga/paper";
 import { cn, clamp } from "@/lib/utils";
 import { FontSizeControl } from "@/components/manga/font-size";
@@ -1283,17 +1284,52 @@ function BubbleInner({
   );
 }
 
+/** Balloon box proportions on the page, so the pen width reads evenly however the box is stretched. */
+function inkBoxOf(overlay: Overlay, aspect: number): InkBox {
+  return { boxW: Math.max(0.5, overlay.w * aspect), boxH: Math.max(0.5, overlay.h) };
+}
+
 function BalloonBody({
   overlay,
   inheritPaint = false,
+  pass = "both",
+  aspect = 1,
 }: {
   overlay: Overlay;
   inheritPaint?: boolean;
+  /** Chained balloons are painted in two passes over the whole chain. */
+  pass?: "both" | "ink" | "paper";
+  aspect?: number;
 }) {
+  const handInk = useStudio((s) => s.handInk);
   const style = balloonStyleOf(overlay);
   const fill = inheritPaint ? undefined : isClearPaint(overlay.fill) ? "none" : overlay.fill || "#ffffff";
   const stroke = inheritPaint ? undefined : overlay.stroke || "#161412";
   const e = balloonEllipse(style);
+  if (handInk) {
+    const shape = inkBody(style, inkSeed(overlay.id), inkBoxOf(overlay, aspect));
+    const paperColor = inheritPaint ? undefined : fill;
+    const inkColor = inheritPaint ? undefined : stroke;
+    return (
+      <>
+        {pass !== "ink" && shape.paper && paperColor !== "none" ? (
+          <path d={shape.paper} fill={paperColor} stroke="none" />
+        ) : null}
+        {pass !== "paper" && shape.ink ? <path d={shape.ink} fill={inkColor} stroke="none" /> : null}
+        {pass !== "paper" && shape.line ? (
+          <path
+            d={shape.line.d}
+            fill="none"
+            stroke={inkColor}
+            strokeWidth={shape.line.width}
+            strokeDasharray={shape.line.dash}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ) : null}
+      </>
+    );
+  }
   const paint = inheritPaint
     ? {}
     : {
@@ -1352,12 +1388,14 @@ function BubbleShape({
   showTail?: boolean;
   paint?: boolean;
 }) {
+  const handInk = useStudio((s) => s.handInk);
+  const paperSize = useStudio((s) => s.paperSize);
   if (!paint) return null;
   const fill = isClearPaint(overlay.fill) ? "none" : overlay.fill || "#ffffff";
   const stroke = overlay.stroke || "#161412";
   if (overlay.kind === "title" || overlay.kind === "sfx" || overlay.kind === "tone" || overlay.kind === "text") return null;
   const style = balloonStyleOf(overlay);
-  if (overlay.kind === "narration" && !overlay.balloonStyle) {
+  if (overlay.kind === "narration" && !overlay.balloonStyle && !handInk) {
     return (
       <svg
         viewBox="0 0 200 60"
@@ -1378,10 +1416,43 @@ function BubbleShape({
       </svg>
     );
   }
+  const aspect = pageAspect(paperSize);
   const e = balloonEllipse(style);
   const g = speechTailGeom(overlay.tailX, overlay.tailY, e);
   const trail = balloonUsesTrail(style) ? thoughtTrail(overlay.tailX, overlay.tailY) : [];
   const tailOn = showTail && balloonHasTail(style);
+  if (handInk) {
+    const seed = inkSeed(overlay.id);
+    const box = inkBoxOf(overlay, aspect);
+    const puffs = trail.slice(0, showTail ? trail.length : Math.max(0, trail.length - 1));
+    const tail = tailOn ? inkTail(g, seed, box) : null;
+    return (
+      <svg
+        viewBox="-25 -60 150 240"
+        className="pointer-events-none absolute overflow-visible"
+        style={{ left: "-25%", top: "-60%", width: "150%", height: "240%" }}
+        preserveAspectRatio="none"
+        aria-hidden
+      >
+        <BalloonBody overlay={overlay} aspect={aspect} />
+        {puffs.map((p, i) => {
+          const puff = inkPuff(p, seed + 17 * (i + 1), box);
+          return (
+            <g key={i}>
+              {fill !== "none" ? <path d={puff.paper} fill={fill} stroke="none" /> : null}
+              <path d={puff.ink} fill={stroke} stroke="none" />
+            </g>
+          );
+        })}
+        {tail ? (
+          <>
+            {fill !== "none" ? <path d={tail.paper} fill={fill} stroke="none" /> : null}
+            <path d={tail.ink} fill={stroke} stroke="none" />
+          </>
+        ) : null}
+      </svg>
+    );
+  }
   return (
     <svg
       viewBox="-25 -60 150 240"
@@ -2312,14 +2383,14 @@ export function StickerMark({
   );
 }
 
-function ChainBody({ overlay }: { overlay: Overlay }) {
+function ChainBody({ overlay, pass, aspect }: { overlay: Overlay; pass: "ink" | "paper"; aspect: number }) {
   const style = balloonStyleOf(overlay);
   return (
     <g
       transform={`translate(${overlay.x} ${overlay.y}) scale(${overlay.w / 100} ${overlay.h / 100})`}
       strokeDasharray={style === "whisper" ? "1.4 1.1" : undefined}
     >
-      <BalloonBody overlay={overlay} inheritPaint />
+      <BalloonBody overlay={overlay} inheritPaint pass={pass} aspect={aspect} />
     </g>
   );
 }
@@ -2331,6 +2402,9 @@ export function ChainLayer({
   group: Overlay[];
   zIndex?: number;
 }) {
+  const handInk = useStudio((s) => s.handInk);
+  const paperSize = useStudio((s) => s.paperSize);
+  const aspect = pageAspect(paperSize);
   const fill = group[0]?.fill || "#ffffff";
   const stroke = group[0]?.stroke || "#161412";
   const necks = group.slice(0, -1).map((a, i) => ({ a, b: group[i + 1]! }));
@@ -2343,18 +2417,19 @@ export function ChainLayer({
       aria-hidden
       data-koma="chain-layer"
     >
+      {/* Ink pass: hand-drawn ribbons are filled with the ink colour; clean lines are stroked. */}
       <g
-        fill="none"
+        fill={handInk ? stroke : "none"}
         stroke={stroke}
         strokeWidth="1.05"
         strokeLinejoin="round"
         strokeLinecap="round"
       >
         {necks.map(({ a, b }) => (
-          <path key={`ns-${a.id}`} d={chainConnectorPath(a, b)} />
+          <path key={`ns-${a.id}`} d={chainConnectorPath(a, b)} fill="none" />
         ))}
         {group.map((o) => (
-          <ChainBody key={`bs-${o.id}`} overlay={o} />
+          <ChainBody key={`bs-${o.id}`} overlay={o} pass="ink" aspect={aspect} />
         ))}
       </g>
       <g fill={fill} stroke="none">
@@ -2362,7 +2437,7 @@ export function ChainLayer({
           <path key={`nf-${a.id}`} d={chainConnectorPath(a, b)} />
         ))}
         {group.map((o) => (
-          <ChainBody key={`bf-${o.id}`} overlay={o} />
+          <ChainBody key={`bf-${o.id}`} overlay={o} pass="paper" aspect={aspect} />
         ))}
       </g>
     </svg>

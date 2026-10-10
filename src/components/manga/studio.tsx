@@ -1741,6 +1741,7 @@ function Inspector({
   const showDocument = showAll || tab === "document";
   const logos = useStudio((s) => s.customStickers);
   const snapEdges = useStudio((s) => s.snapEdges);
+  const handInk = useStudio((s) => s.handInk);
   const spreadOn = useStudio((s) => s.spread);
   const paperSize = useStudio((s) => s.paperSize);
 
@@ -2021,6 +2022,12 @@ function Inspector({
             label="Snap to edges"
             checked={snapEdges}
             onChange={(v) => useStudio.getState().setSnapEdges(v)}
+          />
+          <CheckRow
+            label="Hand-drawn balloons"
+            koma="view-hand-ink"
+            checked={handInk}
+            onChange={(v) => useStudio.getState().setHandInk(v)}
           />
           <CheckRow
             label="Two-page spread"

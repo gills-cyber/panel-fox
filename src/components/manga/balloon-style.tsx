@@ -7,13 +7,35 @@ import {
   type SnapGuide,
 } from "@/lib/manga/balloons";
 import { THOUGHT_CLOUD } from "@/lib/manga/lettering";
+import { inkBody, inkSeed } from "@/lib/manga/ink";
 import type { BalloonStyle, Overlay } from "@/lib/manga/types";
 import { cn } from "@/lib/utils";
 
 function ThumbShape({ id }: { id: BalloonStyle }) {
   const e = balloonEllipse(id);
+  const handInk = useStudio((s) => s.handInk);
   const fill = "var(--color-paper)";
   const stroke = "currentColor";
+  if (handInk) {
+    // Same generator as the page, with a heavier nib so the line survives at 28px.
+    const shape = inkBody(id, inkSeed(`thumb-${id}`), { boxW: 100, boxH: 100 }, 1, 1.9);
+    return (
+      <svg viewBox="0 0 100 100" className="size-full overflow-visible" aria-hidden>
+        <path d={shape.paper} fill={fill} stroke="none" />
+        {shape.ink ? <path d={shape.ink} fill={stroke} stroke="none" /> : null}
+        {shape.line ? (
+          <path
+            d={shape.line.d}
+            fill="none"
+            stroke={stroke}
+            strokeWidth={shape.line.width}
+            strokeDasharray={shape.line.dash}
+            strokeLinecap="round"
+          />
+        ) : null}
+      </svg>
+    );
+  }
   return (
     <svg viewBox="0 0 100 100" className="size-full" aria-hidden>
       {id === "cloud" ? (

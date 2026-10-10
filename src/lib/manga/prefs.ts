@@ -16,6 +16,8 @@ export type StudioPrefs = {
   showNumbers: boolean;
   spread: boolean;
   snapEdges: boolean;
+  /** Hand-drawn (G-pen) balloon ink on screen and in export; false draws clean geometric lines. */
+  handInk: boolean;
   thumbs: boolean;
   updatedAt?: number;
   exportFormat?: "png" | "jpeg" | "pdf" | "cbz" | "strip" | "canvas";

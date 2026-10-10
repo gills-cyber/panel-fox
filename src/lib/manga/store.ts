@@ -275,6 +275,7 @@ type StudioState = {
   paperSize: PaperSizeId;
   bleed: number;
   snapEdges: boolean;
+  handInk: boolean;
   snapGuides: SnapGuide[];
   spread: boolean;
   readMode: boolean;
@@ -324,6 +325,7 @@ type StudioState = {
   setPaperSize: (s: PaperSizeId) => void;
   setBleed: (n: number) => void;
   setSnapEdges: (v: boolean) => void;
+  setHandInk: (v: boolean) => void;
   setSnapGuides: (guides: SnapGuide[]) => void;
   setSpread: (v: boolean) => void;
   setReadMode: (v: boolean) => void;
@@ -455,6 +457,7 @@ export const useStudio = create<StudioState>()(
             : DEFAULT_PAPER_SIZE,
         bleed: typeof boot.bleed === "number" ? boot.bleed : 0,
         snapEdges: boot.snapEdges !== false,
+        handInk: boot.handInk !== false,
         snapGuides: [],
         pendingEditOverlayId: null,
         spread: Boolean(boot.spread),
@@ -839,6 +842,7 @@ export const useStudio = create<StudioState>()(
         },
         setBleed: (bleed) => commit({ bleed }),
         setSnapEdges: (snapEdges) => set({ snapEdges }),
+        setHandInk: (handInk) => set({ handInk }),
         setSnapGuides: (snapGuides) => {
           // Dragging calls this every pointer move; only re-render the page when the guides actually change.
           const cur = get().snapGuides;
@@ -2076,6 +2080,7 @@ export const useStudio = create<StudioState>()(
         paperSize: s.paperSize,
         bleed: s.bleed,
         snapEdges: s.snapEdges,
+        handInk: s.handInk,
         spread: s.spread,
         theme: s.theme,
         rtl: s.rtl,
@@ -2124,6 +2129,7 @@ export const useStudio = create<StudioState>()(
         if (typeof prefs.showNumbers === "boolean") next.showNumbers = prefs.showNumbers;
         if (typeof prefs.spread === "boolean") next.spread = prefs.spread;
         if (typeof prefs.snapEdges === "boolean") next.snapEdges = prefs.snapEdges;
+        if (typeof prefs.handInk === "boolean") next.handInk = prefs.handInk;
         return next;
       },
       onRehydrateStorage: () => (state) => {
@@ -2155,6 +2161,7 @@ if (typeof window !== "undefined") {
       showNumbers: s.showNumbers,
       spread: s.spread,
       snapEdges: s.snapEdges,
+      handInk: s.handInk,
     });
   });
 }

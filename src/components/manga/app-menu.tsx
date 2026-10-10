@@ -121,6 +121,7 @@ function AppMenuInner({
     ? overlays.find((o) => o.id === overlayId)
     : undefined;
   const snapEdges = useStudio((s) => s.snapEdges);
+  const handInk = useStudio((s) => s.handInk);
   const canFlipTail = Boolean(
     selectedOverlay && isDialogue(selectedOverlay.kind) && !selectedOverlay.locked,
   );
@@ -504,6 +505,15 @@ function AppMenuInner({
             run(() => {
               const s = useStudio.getState();
               s.setSnapEdges(!s.snapEdges);
+            })
+          }
+        />
+        <Item
+          label={handInk ? "Hand-drawn Balloons ✓" : "Hand-drawn Balloons"}
+          onClick={() =>
+            run(() => {
+              const s = useStudio.getState();
+              s.setHandInk(!s.handInk);
             })
           }
         />

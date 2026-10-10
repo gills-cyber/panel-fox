@@ -17,6 +17,7 @@ import type {
   ToneId,
 } from "./types";
 import { balloonStyleOf, balloonHasTail, styleFromKind, burstPath, balloonEllipse, balloonTextFrame } from "./balloons";
+import { inkBody, inkPuff, inkSeed, inkTail, type InkShape } from "./ink";
 
 export const HOT_PINK = "#ff2bd6";
 export const NEON_RED = "#ff1f3d";
@@ -1659,7 +1660,7 @@ export function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth:
 	}
 	return lines.length ? lines : [""];
 }
-export function drawOverlay(ctx: CanvasRenderingContext2D, o: Overlay, pageW: number, pageH: number, opts?: { showTail?: boolean; skipShape?: boolean }) {
+export function drawOverlay(ctx: CanvasRenderingContext2D, o: Overlay, pageW: number, pageH: number, opts?: { showTail?: boolean; skipShape?: boolean; handInk?: boolean }) {
 	if (o.hidden) return;
 	const x = o.x / 100 * pageW;
 	const y = o.y / 100 * pageH;
@@ -1694,7 +1695,8 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, o: Overlay, pageW: nu
 		const style = balloonStyleOf(o);
 		if (o.kind === "title" || o.kind === "sfx" || o.kind === "tone" || o.kind === "text") {
 			/* no balloon body */
-		} else if (style === "cloud") drawThought(ctx, w, h, o.tailX, o.tailY, o.fill, o.stroke, opts?.showTail !== false);
+		} else if (opts?.handInk !== false) drawInkBalloon(ctx, o, w, h, opts?.showTail !== false);
+		else if (style === "cloud") drawThought(ctx, w, h, o.tailX, o.tailY, o.fill, o.stroke, opts?.showTail !== false);
 		else if (style === "box") drawNarration(ctx, w, h, o.fill, o.stroke);
 		else if (o.kind === "narration" && !o.balloonStyle) drawNarration(ctx, w, h, o.fill, o.stroke);
 		else drawSpeech(ctx, w, h, o.tailX, o.tailY, o.fill, o.stroke, opts?.showTail !== false && balloonHasTail(style), style);
@@ -1739,6 +1741,48 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, o: Overlay, pageW: nu
 		ctx.fillStyle = o.color;
 		ctx.fillText(line, tx, ly, innerW);
 	});
+	ctx.restore();
+}
+/** Fill the paper and ink of a hand-drawn shape; the context is already scaled to balloon units. */
+export function paintInkShape(ctx: CanvasRenderingContext2D, shape: InkShape, paper: string, ink: string) {
+	if (!isClearPaint(paper) && shape.paper) {
+		ctx.fillStyle = paper;
+		ctx.fill(new Path2D(shape.paper));
+	}
+	if (shape.ink) {
+		ctx.fillStyle = ink;
+		ctx.fill(new Path2D(shape.ink));
+	}
+	if (shape.line) {
+		ctx.strokeStyle = ink;
+		ctx.lineWidth = shape.line.width;
+		ctx.lineJoin = "round";
+		ctx.lineCap = "round";
+		ctx.setLineDash(shape.line.dash ? shape.line.dash.split(" ").map(Number) : []);
+		ctx.stroke(new Path2D(shape.line.d));
+		ctx.setLineDash([]);
+	}
+}
+/** Hand-drawn (G-pen) balloon: same generator as the on-screen SVG, so export matches the editor. */
+function drawInkBalloon(ctx: CanvasRenderingContext2D, o: Overlay, w: number, h: number, showTail: boolean) {
+	const style = balloonStyleOf(o);
+	const ink = balloonStrokeColor(o.stroke);
+	const paper = balloonFillColor(o.fill);
+	const seed = inkSeed(o.id);
+	const box = { boxW: w, boxH: h };
+	ctx.save();
+	ctx.scale(w / 100, h / 100);
+	paintInkShape(ctx, inkBody(style, seed, box), paper, ink);
+	if (style === "cloud" || style === "whisper") {
+		const trail = thoughtTrail(o.tailX, o.tailY);
+		trail.forEach((p, i) => {
+			if (!showTail && i === trail.length - 1) return;
+			paintInkShape(ctx, inkPuff(p, seed + 17 * (i + 1), box), paper, ink);
+		});
+	} else if (showTail && balloonHasTail(style)) {
+		const g = speechTailGeom(o.tailX, o.tailY, balloonEllipse(style));
+		paintInkShape(ctx, inkTail(g, seed, box), paper, ink);
+	}
 	ctx.restore();
 }
 function strokeFill(ctx, fill = "#ffffff", stroke = "#161412") {

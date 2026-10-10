@@ -31,6 +31,7 @@ function opts() {
     rtl: s.rtl,
     paperSize: s.paperSize,
     bleed: s.bleed,
+    handInk: s.handInk,
   };
 }
 

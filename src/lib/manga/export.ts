@@ -1,7 +1,8 @@
 import { boxesForPage } from "./templates";
 import { paperSpec, type PaperSizeId } from "./paper";
 import { drawFitted, imageFilter, loadHtmlImage, tiltCover } from "./image";
-import { drawOverlay, ensureComicFont, pageOverlays, pageTitle, chainGroups, chainConnectorPath, isChainTail, isChained, THOUGHT_CLOUD, overlayOpacity, tintsRaster } from "./lettering";
+import { drawOverlay, ensureComicFont, pageOverlays, pageTitle, chainGroups, chainConnectorPath, isChainTail, isChained, THOUGHT_CLOUD, overlayOpacity, tintsRaster, paintInkShape } from "./lettering";
+import { inkBody, inkSeed } from "./ink";
 import { balloonStyleOf, burstPath, balloonEllipse } from "./balloons";
 import type { Overlay, PageState, PaperTone, BookInfo, Chapter } from "./types";
 import { zipStore } from "./zip";
@@ -46,6 +47,8 @@ export type ExportOpts = {
   width?: number;
   folio?: string;
   pixelScale?: number;
+  /** Hand-drawn balloon ink (default true, matches the editor). */
+  handInk?: boolean;
 };
 
 export type ExportBookOpts = {
@@ -229,6 +232,7 @@ async function renderPageCanvas(opts: ExportOpts) {
     overlays.filter((o) => o.behind),
     width,
     height,
+    opts.handInk !== false,
   );
 
   await paintOverlays(
@@ -236,6 +240,7 @@ async function renderPageCanvas(opts: ExportOpts) {
     overlays.filter((o) => !o.behind),
     width,
     height,
+    opts.handInk !== false,
   );
 
   if (opts.folio) {
@@ -257,6 +262,7 @@ async function paintOverlays(
   overlays: Overlay[],
   width: number,
   height: number,
+  handInk = true,
 ) {
   if (!overlays.length) return;
   ctx.save();
@@ -286,6 +292,14 @@ async function paintOverlays(
         ctx.save();
         ctx.translate(o.x, o.y);
         ctx.scale(o.w / 100, o.h / 100);
+        if (handInk) {
+          // Same hand-drawn shapes as the single balloons; ink pass fills the ribbon, paper pass the inside.
+          const shape = inkBody(style, inkSeed(o.id), { boxW: (o.w * width) / 100, boxH: (o.h * height) / 100 });
+          if (mode === "stroke") paintInkShape(ctx, { ...shape, paper: "" }, fill, stroke);
+          else paintInkShape(ctx, { ink: "", paper: shape.paper }, fill, stroke);
+          ctx.restore();
+          continue;
+        }
         if (style === "whisper") ctx.setLineDash(mode === "stroke" ? [2.2, 1.8] : []);
         if (style === "cloud") {
           const cloud = new Path2D(THOUGHT_CLOUD);
@@ -361,6 +375,7 @@ async function paintOverlays(
     drawOverlay(ctx, overlay, width, height, {
       showTail: isChainTail(overlay, overlays),
       skipShape: isChained(overlay, overlays),
+      handInk,
     });
   }
 }
