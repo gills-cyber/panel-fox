@@ -1,6 +1,7 @@
 import {
   memo,
   useEffect,
+  useCallback,
   useLayoutEffect,
   useRef,
   useState,
@@ -137,12 +138,22 @@ import {
   pageLabel,
 } from "@/lib/manga/book";
 import {
-  nudgeZoom,
+  settleZoom,
   stepZoom,
   zoomLabel as formatZoom,
+  ZOOM_MAX,
+  ZOOM_MIN,
   ZOOM_PRESETS,
   type PageZoom,
 } from "@/lib/manga/zoom";
+import {
+  anchorAt,
+  layoutRect,
+  placeZoom,
+  transformFor,
+  union,
+  type Placement,
+} from "@/lib/manga/zoom-motion";
 
 /** Quiet time after an edit before the project is written. */
 const AUTOSAVE_SOON_MS = 2500;
@@ -166,6 +177,17 @@ export function Studio() {
   const [tab, setTab] = useState<InspectorTab>("format");
   const [thumbs, setThumbs] = useState(true);
   const [zoom, setZoom] = useState<PageZoom>("fit");
+  const zoomRef = useRef<PageZoom>("fit");
+  zoomRef.current = zoom;
+  /** The page's width at Fit, measured whenever Fit is showing. */
+  const fitPx = useRef(0);
+  /** A zoom step in flight: the transform eases, then the real layout lands. */
+  const zoomMotion = useRef<{ token: number; next: PageZoom; place: Placement } | null>(null);
+  const zoomCommit = useRef<Placement | null>(null);
+  /** A pinch in progress: the running scale against the laid-out size. */
+  const pinch = useRef<{ k: number; fromPx: number; start: number } | null>(null);
+  /** The last transform placed on the sheets, to tell a no-op settle apart. */
+  const lastPlace = useRef<Placement | null>(null);
   const [pageMenu, setPageMenu] = useState<PageRailMenu | null>(null);
   const stageRef = useRef<HTMLElement>(null);
   const [exportOpen, setExportOpen] = useState(false);
@@ -430,7 +452,7 @@ export function Studio() {
         (e.key === "=" || e.key === "+" || e.code === "NumpadAdd")
       ) {
         e.preventDefault();
-        setZoom((z) => stepZoom(z, 1));
+        zoomToRef.current(stepZoom(zoomRef.current, 1));
         return;
       }
       if (
@@ -439,12 +461,17 @@ export function Studio() {
         (e.key === "-" || e.code === "NumpadSubtract")
       ) {
         e.preventDefault();
-        setZoom((z) => stepZoom(z, -1));
+        zoomToRef.current(stepZoom(zoomRef.current, -1));
+        return;
+      }
+      if (modKey(e) && e.code === "Digit0" && e.altKey && !isTypingTarget(e.target)) {
+        e.preventDefault();
+        zoomToRef.current(100);
         return;
       }
       if (modKey(e) && e.key === "0" && !isTypingTarget(e.target)) {
         e.preventDefault();
-        setZoom("fit");
+        zoomToRef.current("fit");
         return;
       }
       const used = handleStudioHotkey(e);
@@ -463,18 +490,224 @@ export function Studio() {
     };
   }, []);
 
+  // ---- Zoom motion: the sheets scale on the GPU, then lay out once at the real size.
+  const zoomParts = useCallback(() => {
+    const stage = stageRef.current;
+    const subject = stage?.querySelector<HTMLElement>("[data-koma-zoom-subject]") ?? null;
+    const pages = stage ? [...stage.querySelectorAll<HTMLElement>(".paper-sheet")] : [];
+    if (!stage || !subject || !pages.length) return null;
+    return { stage, subject, pages, page: pages[0]! };
+  }, []);
+
+  const targetPx = useCallback(
+    (z: PageZoom) => (z === "fit" ? fitPx.current : Math.round(5.6 * z)),
+    [],
+  );
+
+  const finishZoomMotion = useCallback(
+    (token: number) => {
+      const m = zoomMotion.current;
+      if (!m || m.token !== token) return;
+      zoomMotion.current = null;
+      const parts = zoomParts();
+      if (!parts) return;
+      parts.stage.removeAttribute("data-zoom-motion");
+      parts.stage.setAttribute("data-pinching", "");
+      zoomCommit.current = m.place;
+      if (Object.is(m.next, zoomRef.current)) {
+        // Same zoom as before (a pinch that settled back): swap now.
+        landZoom();
+        return;
+      }
+      zoomRef.current = m.next;
+      setZoom(m.next);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [zoomParts],
+  );
+
+  /** The real layout is in: drop the transform and scroll to where the motion ended. */
+  function landZoom() {
+    const place = zoomCommit.current;
+    const parts = zoomParts();
+    if (!place || !parts) return;
+    zoomCommit.current = null;
+    parts.subject.style.transform = "";
+    parts.stage.scrollLeft = place.scrollLeft;
+    parts.stage.scrollTop = place.scrollTop;
+    const stage = parts.stage;
+    requestAnimationFrame(() => stage.removeAttribute("data-pinching"));
+  }
+
+  useLayoutEffect(() => {
+    if (zoomCommit.current) landZoom();
+    if (zoom === "fit") {
+      const parts = zoomParts();
+      if (parts) fitPx.current = parts.page.offsetWidth;
+    }
+  });
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const ro = new ResizeObserver(() => {
+      if (zoomRef.current !== "fit") return;
+      const parts = zoomParts();
+      if (parts) fitPx.current = parts.page.offsetWidth;
+    });
+    ro.observe(stage);
+    return () => ro.disconnect();
+  }, [zoomParts]);
+
+  /** Zoom to `next` with motion, keeping `at` (or the stage's centre) still. */
+  const zoomTo = useCallback(
+    (next: PageZoom, at?: { x: number; y: number }) => {
+      const parts = zoomParts();
+      if (!parts) {
+        zoomRef.current = next;
+        setZoom(next);
+        return;
+      }
+      const { stage, subject, pages } = parts;
+      const fromPx = parts.page.offsetWidth;
+      const toPx = targetPx(next);
+      if (!fromPx || !toPx) {
+        zoomRef.current = next;
+        setZoom(next);
+        return;
+      }
+      const k = toPx / fromPx;
+      const seen = union(pages.map((p) => p.getBoundingClientRect()))!;
+      const sr = stage.getBoundingClientRect();
+      const anchor = anchorAt(seen, at?.x ?? sr.left + sr.width / 2, at?.y ?? sr.top + sr.height / 2);
+      const sheets = union(pages.map((p) => layoutRect(stage, p)))!;
+      const place = placeZoom(stage, subject, sheets, k, anchor);
+      const token = (zoomMotion.current?.token ?? 0) + 1;
+      zoomMotion.current = { token, next, place };
+      const target = transformFor(place);
+      // Nothing to animate when the sheets already sit there (a pinch that
+      // settled on its own size), or when motion is off.
+      const cur = subject.style.transform ? lastPlace.current : { k: 1, dx: 0, dy: 0 };
+      const still =
+        cur &&
+        Math.abs(cur.k - k) < 0.002 &&
+        Math.abs(cur.dx - place.dx) < 1 &&
+        Math.abs(cur.dy - place.dy) < 1;
+      if (prefersReducedMotion() || still) {
+        subject.style.transform = target;
+        lastPlace.current = place;
+        finishZoomMotion(token);
+        return;
+      }
+      stage.removeAttribute("data-pinching");
+      stage.setAttribute("data-zoom-motion", "");
+      const onEnd = (e: TransitionEvent) => {
+        if (e.target !== subject || e.propertyName !== "transform") return;
+        subject.removeEventListener("transitionend", onEnd);
+        finishZoomMotion(token);
+      };
+      subject.addEventListener("transitionend", onEnd);
+      window.setTimeout(() => {
+        subject.removeEventListener("transitionend", onEnd);
+        finishZoomMotion(token);
+      }, 400);
+      // Next frame, so the transition sees a change from the current transform.
+      requestAnimationFrame(() => {
+        if (zoomMotion.current?.token !== token) return;
+        subject.style.transform = target;
+        lastPlace.current = place;
+      });
+    },
+    [zoomParts, targetPx, finishZoomMotion],
+  );
+  const zoomToRef = useRef(zoomTo);
+  zoomToRef.current = zoomTo;
+
+  // Trackpad pinch (and ⌘/Ctrl + wheel) scale the page live under the fingers;
+  // when the gesture ends the size settles on a preset in reach and lays out.
   useEffect(() => {
     const el = stageRef.current;
     if (!el) return;
+    let settle = 0;
+    let gestureAt = 0;
+    /** Begin a pinch from whatever scale is on screen, even mid-motion. */
+    function begin() {
+      const parts = zoomParts();
+      if (!parts) return null;
+      if (!pinch.current) {
+        const layoutW = parts.page.offsetWidth;
+        const seenW = parts.page.getBoundingClientRect().width;
+        const k = layoutW ? seenW / layoutW : 1;
+        pinch.current = { k, fromPx: layoutW, start: k };
+        zoomMotion.current = null;
+        parts.stage.removeAttribute("data-zoom-motion");
+        parts.stage.setAttribute("data-pinching", "");
+      }
+      return parts;
+    }
+    function live(k: number, x: number, y: number) {
+      const parts = begin();
+      if (!parts || !pinch.current) return;
+      const { stage, subject, pages } = parts;
+      const from = pinch.current.fromPx / 5.6;
+      pinch.current.k = clamp(k, ZOOM_MIN / from, ZOOM_MAX / from);
+      const seen = union(pages.map((p) => p.getBoundingClientRect()))!;
+      const sheets = union(pages.map((p) => layoutRect(stage, p)))!;
+      const place = placeZoom(stage, subject, sheets, pinch.current.k, anchorAt(seen, x, y));
+      subject.style.transform = transformFor(place);
+      lastPlace.current = place;
+    }
+    function end(x: number, y: number) {
+      const g = pinch.current;
+      pinch.current = null;
+      if (!g) return;
+      const pct = (g.fromPx * g.k) / 5.6;
+      zoomToRef.current(settleZoom(pct, fitPx.current / 5.6), { x, y });
+    }
     function onWheel(e: WheelEvent) {
       if (!(e.ctrlKey || e.metaKey)) return;
       e.preventDefault();
-      const delta = e.deltaY > 0 ? -12 : 12;
-      setZoom((z) => nudgeZoom(z, delta));
+      if (performance.now() - gestureAt < 200) return; // Safari also sends gesture events
+      // A pinch arrives as many small deltas, a mouse wheel as notches of ~100.
+      const factor = 1 + clamp(-e.deltaY / 100, -0.25, 0.25);
+      const parts = begin();
+      if (!parts || !pinch.current) return;
+      live(pinch.current.k * factor, e.clientX, e.clientY);
+      window.clearTimeout(settle);
+      settle = window.setTimeout(() => end(e.clientX, e.clientY), 160);
+    }
+    type Gesture = Event & { scale: number; clientX: number; clientY: number };
+    function onGestureStart(e: Event) {
+      e.preventDefault();
+      gestureAt = performance.now();
+      const g = e as Gesture;
+      begin();
+      if (pinch.current) live(pinch.current.k, g.clientX, g.clientY);
+    }
+    function onGestureChange(e: Event) {
+      e.preventDefault();
+      gestureAt = performance.now();
+      const g = e as Gesture;
+      begin();
+      if (pinch.current) live(pinch.current.start * g.scale, g.clientX, g.clientY);
+    }
+    function onGestureEnd(e: Event) {
+      e.preventDefault();
+      const g = e as Gesture;
+      end(g.clientX, g.clientY);
     }
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, []);
+    el.addEventListener("gesturestart", onGestureStart);
+    el.addEventListener("gesturechange", onGestureChange);
+    el.addEventListener("gestureend", onGestureEnd);
+    return () => {
+      window.clearTimeout(settle);
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("gesturestart", onGestureStart);
+      el.removeEventListener("gesturechange", onGestureChange);
+      el.removeEventListener("gestureend", onGestureEnd);
+    };
+  }, [zoomParts]);
 
   useEffect(() => {
     function over(e: DragEvent) {
@@ -699,9 +932,10 @@ export function Studio() {
         onTheme={() =>
           useStudio.getState().setTheme(theme === "dark" ? "light" : "dark")
         }
-        onZoomIn={() => setZoom((z) => stepZoom(z, 1))}
-        onZoomOut={() => setZoom((z) => stepZoom(z, -1))}
-        onZoomFit={() => setZoom("fit")}
+        onZoomIn={() => zoomTo(stepZoom(zoom, 1))}
+        onZoomOut={() => zoomTo(stepZoom(zoom, -1))}
+        onZoomFit={() => zoomTo("fit")}
+        onZoomActual={() => zoomTo(100)}
         onCommands={() => setCmdOpen(true)}
       />
 
@@ -886,7 +1120,7 @@ export function Studio() {
               keys={k("-", { cmd: true })}
               koma="zoom-out"
               className="hidden lg:flex md:min-w-8 md:px-1"
-              onClick={() => setZoom((z) => stepZoom(z, -1))}
+              onClick={() => zoomTo(stepZoom(zoom, -1))}
             >
               <ZoomOut />
             </ToolTipBtn>
@@ -909,12 +1143,12 @@ export function Studio() {
               keys={k("+", { cmd: true })}
               koma="zoom-in"
               className="hidden lg:flex md:min-w-8 md:px-1"
-              onClick={() => setZoom((z) => stepZoom(z, 1))}
+              onClick={() => zoomTo(stepZoom(zoom, 1))}
             >
               <ZoomIn />
             </ToolTipBtn>
             {menu === "zoom" ? (
-              <MenuPanel anchor={menuAnchor} align="end" className="w-28">
+              <MenuPanel anchor={menuAnchor} align="end" className="w-36">
                 {ZOOM_PRESETS.map((opt) => (
                   <button
                     key={String(opt.id)}
@@ -925,7 +1159,7 @@ export function Studio() {
                     className="relative flex h-7 w-full items-center rounded-[5px] pl-6 pr-2.5 text-left text-[13px] text-ink hover:bg-accent hover:text-accent-fg"
                     onClick={(e) =>
                       flashThen(e.currentTarget, () => {
-                        setZoom(opt.id);
+                        zoomTo(opt.id);
                         setMenu(null);
                       })
                     }
@@ -938,6 +1172,11 @@ export function Studio() {
                       />
                     ) : null}
                     {opt.label}
+                    {opt.id === "fit" || opt.id === 100 ? (
+                      <span className="koma-keys ml-auto pl-3 text-[12px] tabular-nums opacity-55">
+                        {k("0", { cmd: true, alt: opt.id === 100 })}
+                      </span>
+                    ) : null}
                   </button>
                 ))}
               </MenuPanel>
@@ -1618,9 +1857,10 @@ export function Studio() {
           theme,
           onTheme: () =>
             useStudio.getState().setTheme(theme === "dark" ? "light" : "dark"),
-          onZoomIn: () => setZoom((z) => stepZoom(z, 1)),
-          onZoomOut: () => setZoom((z) => stepZoom(z, -1)),
-          onZoomFit: () => setZoom("fit"),
+          onZoomIn: () => zoomTo(stepZoom(zoomRef.current, 1)),
+          onZoomOut: () => zoomTo(stepZoom(zoomRef.current, -1)),
+          onZoomFit: () => zoomTo("fit"),
+          onZoomActual: () => zoomTo(100),
           onSwitchProject: (id) => {
             void switchToProject(id)
               .then((r) => {

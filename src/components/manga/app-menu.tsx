@@ -110,6 +110,7 @@ function AppMenuInner({
   onZoomIn,
   onZoomOut,
   onZoomFit,
+  onZoomActual,
   onCommands,
 }: {
   thumbs: boolean;
@@ -132,6 +133,7 @@ function AppMenuInner({
   onZoomIn: () => void;
   onZoomOut: () => void;
   onZoomFit: () => void;
+  onZoomActual: () => void;
   onCommands: () => void;
 }) {
   const [open, setOpen] = useState<MenuId>(null);
@@ -579,6 +581,11 @@ function AppMenuInner({
         <Item label="Zoom In" keys={k("+", { cmd: true })} onClick={() => run(onZoomIn)} />
         <Item label="Zoom Out" keys={k("-", { cmd: true })} onClick={() => run(onZoomOut)} />
         <Item label="Fit Page" keys={k("0", { cmd: true })} onClick={() => run(onZoomFit)} />
+        <Item
+          label="Actual Size"
+          keys={k("0", { cmd: true, alt: true })}
+          onClick={() => run(onZoomActual)}
+        />
         <Divider />
         <Item label="Two-Page Spread" checked={spread} onClick={() => run(onSpread)} />
         <Item label="Read Mode" keys="R" onClick={() => run(onRead)} />

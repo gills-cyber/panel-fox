@@ -24,9 +24,13 @@ export function SpreadView({
   const paperSize = useStudio((s) => s.paperSize);
   const spec = paperSpec(paperSize);
 
+  // At a numeric zoom the container hugs the sheets, so a page wider than the
+  // stage scrolls from its left edge instead of overflowing both sides.
+  const hug = zoom === "fit" ? "w-full max-w-full" : "w-max max-w-none";
+
   if (!spread) {
     return (
-      <div className="mx-auto flex w-full max-w-full flex-col items-center">
+      <div data-koma-zoom-subject="" className={cn("mx-auto flex flex-col items-center", hug)}>
         <MangaPage onPickFile={onPickFile} onArmFile={onArmFile} zoom={zoom} />
         <p
           data-koma="folio"
@@ -96,7 +100,8 @@ export function SpreadView({
   return (
     <div
       data-koma="spread"
-      className="koma-spread mx-auto flex w-full max-w-full items-start justify-center"
+      data-koma-zoom-subject=""
+      className={cn("koma-spread mx-auto flex items-start justify-center", hug)}
     >
       {sheet(slot.left, "left")}
       <div className="koma-spine" aria-hidden />

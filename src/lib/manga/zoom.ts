@@ -57,3 +57,22 @@ export function nudgeZoom(zoom: PageZoom, delta: number): number {
   const n = numericZoom(zoom);
   return clamp(Math.round((n + delta) / 5) * 5, ZOOM_MIN, ZOOM_MAX);
 }
+
+/** Scale the zoom by a factor, as a pinch does; "fit" scales from its real percentage. */
+export function scaleZoom(zoom: PageZoom, factor: number, fitPercent = 100): number {
+  const n = zoom === "fit" ? fitPercent : zoom;
+  return clamp(n * factor, ZOOM_MIN, ZOOM_MAX);
+}
+
+/**
+ * Where a pinch lets go: a preset (or Fit) within reach acts as a magnet, so
+ * 100% and Fit are easy to land on; anywhere else keeps the exact size.
+ */
+export function settleZoom(zoom: PageZoom, fitPercent = 100): PageZoom {
+  if (zoom === "fit") return zoom;
+  if (Math.abs(fitPercent - zoom) <= 3) return "fit";
+  for (const step of ZOOM_STEPS) {
+    if (step !== "fit" && Math.abs(step - zoom) <= 3) return step;
+  }
+  return Math.round(zoom);
+}

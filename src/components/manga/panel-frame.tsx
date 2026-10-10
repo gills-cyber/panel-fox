@@ -414,6 +414,7 @@ export function PanelFrame({
 
   function handleWheel(e: React.WheelEvent) {
     if (readOnly || !image) return;
+    if (e.ctrlKey || e.metaKey) return; // a pinch zooms the page
     e.preventDefault();
     const factor = Math.exp(-e.deltaY * 0.0018);
     onZoom(clampImageZoom(image.zoom * factor));

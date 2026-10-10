@@ -1582,10 +1582,22 @@ img {
 .koma-menu-item {
   transition: none;
 }
+/* Zoom never animates the layout: the sheets' container scales on the GPU
+   (see zoom-motion.ts) and the real size lands once, so text stays sharp
+   and the page never re-flows mid-motion. */
 .koma-page-zoom {
-  transition:
-    width var(--motion-medium) var(--ease-spring),
-    max-width var(--motion-medium) var(--ease-spring);
+  transition: none;
+}
+[data-koma-zoom-subject] {
+  transform-origin: 0 0;
+}
+[data-koma="page-stage"][data-zoom-motion] [data-koma-zoom-subject] {
+  transition: transform var(--motion-medium) var(--ease-spring);
+  will-change: transform;
+}
+[data-koma="page-stage"][data-pinching] [data-koma-zoom-subject] {
+  transition: none;
+  will-change: transform;
 }
 
 @keyframes koma-thumb-in {
@@ -1913,6 +1925,7 @@ img {
   }
   .koma-thumb-sheet,
   .koma-page-zoom,
+  [data-koma="page-stage"][data-zoom-motion] [data-koma-zoom-subject],
   .koma-thumb-more,
   .koma-menu-item,
   .koma-palette [cmdk-list] {

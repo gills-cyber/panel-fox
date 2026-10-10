@@ -44,6 +44,7 @@ export type CommandContext = {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onZoomFit: () => void;
+  onZoomActual: () => void;
   /** Saved projects on this device, for the Projects group. */
   projects: ProjectMeta[];
   onSwitchProject: (id: string) => void;
@@ -372,6 +373,7 @@ export function buildCommands(ctx: CommandContext): Command[] {
     { id: "view.zoomIn", label: "Zoom In", group: "View", keys: k("+", { cmd: true }), run: ctx.onZoomIn },
     { id: "view.zoomOut", label: "Zoom Out", group: "View", keys: k("-", { cmd: true }), run: ctx.onZoomOut },
     { id: "view.fit", label: "Fit Page", group: "View", keys: k("0", { cmd: true }), keywords: ["zoom to fit"], run: ctx.onZoomFit },
+    { id: "view.actual", label: "Actual Size", group: "View", keys: k("0", { cmd: true, alt: true }), keywords: ["100%", "zoom"], run: ctx.onZoomActual },
     { id: "view.spread", label: "Two-Page Spread", group: "View", keywords: ["facing", "double"], checked: ctx.spread, run: ctx.onSpread },
     { id: "view.read", label: "Read Mode", group: "View", keys: "R", keywords: ["preview", "reader"], run: ctx.onRead },
     { id: "view.script", label: "Script", group: "View", keywords: ["dialogue", "lines"], run: ctx.onScript },
