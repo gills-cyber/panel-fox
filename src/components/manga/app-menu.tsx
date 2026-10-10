@@ -11,6 +11,7 @@ import { Check, Search } from "lucide-react";
 import { cn, prefersReducedMotion } from "@/lib/utils";
 import { combo, useApplePlatform } from "@/lib/manga/hotkeys";
 import { useStudio } from "@/lib/manga/store";
+import { copyOverlayToClipboard } from "@/lib/manga/clipboard";
 import { Floating } from "@/components/manga/floating";
 import { insertTitle } from "@/lib/manga/actions";
 import { pageOverlays, isDialogue } from "@/lib/manga/lettering";
@@ -145,6 +146,7 @@ function AppMenuInner({
     : undefined;
   const snapEdges = useStudio((s) => s.snapEdges);
   const handInk = useStudio((s) => s.handInk);
+  const hasOverlayClip = useStudio((s) => s.overlayClipboard !== null);
   const canFlipTail = Boolean(
     selectedOverlay && isDialogue(selectedOverlay.kind) && !selectedOverlay.locked,
   );
@@ -275,8 +277,27 @@ function AppMenuInner({
         />
         <Divider />
         <Item
+          label="Cut"
+          keys={k("X", { cmd: true })}
+          disabled={!overlayId}
+          onClick={() => run(() => copyOverlayToClipboard(overlayId, true))}
+        />
+        <Item
+          label="Copy"
+          keys={k("C", { cmd: true })}
+          disabled={!overlayId}
+          onClick={() => run(() => copyOverlayToClipboard(overlayId))}
+        />
+        <Item
+          label="Paste"
+          keys={k("V", { cmd: true })}
+          disabled={!hasOverlayClip}
+          onClick={() => run(() => useStudio.getState().pasteOverlay())}
+        />
+        <Item
           label="Duplicate"
           keys={k("D", { cmd: true })}
+          disabled={!overlayId}
           onClick={() => run(() => useStudio.getState().duplicateOverlay())}
         />
         <Item
@@ -549,7 +570,12 @@ function AppMenuInner({
         onHover={() => setOpen("view")}
         onMove={move}
       >
-        <Item label="Thumbnails" checked={thumbs} onClick={() => run(onThumbs)} />
+        <Item
+          label="Thumbnails"
+          keys={k("P", { cmd: true, alt: true })}
+          checked={thumbs}
+          onClick={() => run(onThumbs)}
+        />
         <Item label="Zoom In" keys={k("+", { cmd: true })} onClick={() => run(onZoomIn)} />
         <Item label="Zoom Out" keys={k("-", { cmd: true })} onClick={() => run(onZoomOut)} />
         <Item label="Fit Page" keys={k("0", { cmd: true })} onClick={() => run(onZoomFit)} />

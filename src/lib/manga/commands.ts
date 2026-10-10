@@ -1,4 +1,5 @@
 import { insertTitle } from "./actions";
+import { copyOverlayToClipboard } from "./clipboard";
 import { pageLabel } from "./book";
 import { combo } from "./hotkeys";
 import { isDialogue, pageOverlays } from "./lettering";
@@ -163,6 +164,30 @@ export function buildCommands(ctx: CommandContext): Command[] {
       keys: k("Z", { cmd: true, shift: true }),
       disabled: !s.future.length,
       run: () => useStudio.getState().redo(),
+    },
+    {
+      id: "edit.cut",
+      label: "Cut",
+      group: "Edit",
+      keys: k("X", { cmd: true }),
+      disabled: !overlayId,
+      run: withOverlay((id) => copyOverlayToClipboard(id, true)),
+    },
+    {
+      id: "edit.copy",
+      label: "Copy",
+      group: "Edit",
+      keys: k("C", { cmd: true }),
+      disabled: !overlayId,
+      run: withOverlay((id) => copyOverlayToClipboard(id)),
+    },
+    {
+      id: "edit.paste",
+      label: "Paste",
+      group: "Edit",
+      keys: k("V", { cmd: true }),
+      disabled: !s.overlayClipboard,
+      run: () => useStudio.getState().pasteOverlay(),
     },
     {
       id: "edit.duplicate",

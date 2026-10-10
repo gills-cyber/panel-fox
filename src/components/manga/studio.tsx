@@ -114,6 +114,7 @@ import {
   modKey,
   useApplePlatform,
 } from "@/lib/manga/hotkeys";
+import { cancelPasteFallback, parseOverlayClipboard } from "@/lib/manga/clipboard";
 import {
   bindProjectUi,
   downloadProjectFile,
@@ -343,9 +344,21 @@ export function Studio() {
 
   useEffect(() => {
     function onPaste(e: ClipboardEvent) {
+      cancelPasteFallback();
       if (useStudio.getState().readMode) return;
+      if (document.querySelector("[data-koma-dialog]")) return;
       const files = [...(e.clipboardData?.files ?? [])];
-      if (!files.length) return;
+      if (!files.length) {
+        if (isTypingTarget(e.target)) return;
+        // A balloon copied here (or in another window) comes back as JSON;
+        // with nothing on the system clipboard the in-app copy still pastes.
+        const text = e.clipboardData?.getData("text/plain") ?? "";
+        const fromText = parseOverlayClipboard(text);
+        if (!fromText && text.trim()) return;
+        const pasted = useStudio.getState().pasteOverlay(fromText);
+        if (pasted) e.preventDefault();
+        return;
+      }
       e.preventDefault();
       const target =
         useStudio.getState().selectedPanelId ??
@@ -386,6 +399,25 @@ export function Studio() {
         e.preventDefault();
         setExportOpen(true);
         return;
+      }
+      // ⌥⌘P thumbnails, ⌥⌘I Format, ⌥⌘J Document: the Pages set. ⌥ turns the
+      // key into a dead glyph on macOS, so go by the physical key.
+      if (modKey(e) && e.altKey && !e.shiftKey && !isTypingTarget(e.target)) {
+        if (e.code === "KeyP") {
+          e.preventDefault();
+          setThumbs((v) => !v);
+          return;
+        }
+        if (e.code === "KeyI") {
+          e.preventDefault();
+          setTab("format");
+          return;
+        }
+        if (e.code === "KeyJ") {
+          e.preventDefault();
+          setTab("document");
+          return;
+        }
       }
       if (
         modKey(e) &&
@@ -675,6 +707,7 @@ export function Studio() {
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
           <ToolTipBtn
             label="Page thumbnails"
+            keys={k("P", { cmd: true, alt: true })}
             active={thumbs}
             onClick={() => setThumbs((v) => !v)}
             className="hidden md:inline-flex"
@@ -937,6 +970,7 @@ export function Studio() {
             <ToolTipBtn
               label="Format"
               caption="Format"
+              keys={k("I", { cmd: true, alt: true })}
               active={tab === "format"}
               onClick={() => setTab("format")}
             >
@@ -954,6 +988,7 @@ export function Studio() {
             <ToolTipBtn
               label="Document"
               caption="Document"
+              keys={k("J", { cmd: true, alt: true })}
               active={tab === "document"}
               onClick={() => setTab("document")}
             >

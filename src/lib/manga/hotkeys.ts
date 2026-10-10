@@ -3,6 +3,8 @@ import { insertTitle } from "./actions";
 import { canRotate, wrapDeg, isDialogue, scaleOverlayBy } from "./lettering";
 import { useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { requestOpenProjects, requestSave, requestSaveAs } from "./project";
+import { copyOverlayToClipboard, schedulePasteFallback } from "./clipboard";
+import { pageOverlays } from "./lettering";
 
 export function isTypingTarget(el: EventTarget | null) {
   if (!(el instanceof HTMLElement)) return false;
@@ -83,7 +85,11 @@ export function handleStudioHotkey(e: KeyboardEvent) {
   }
 
   const studio = useStudio.getState();
-  const key = e.key;
+  // With ⌥ held, macOS reports the dead-key glyph (⌥C is "ç"), so read the
+  // physical key for letter and bracket chords.
+  const key =
+    e.altKey && /^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase() : e.key;
+  const code = e.code;
   const mod = modKey(e);
   const overlayId = studio.selectedOverlayId;
   const typing = isTypingTarget(e.target);
@@ -105,14 +111,14 @@ export function handleStudioHotkey(e: KeyboardEvent) {
     requestOpenProjects();
     return true;
   }
-  if (mod && (key === "]" || key === "BracketRight")) {
+  if (mod && (key === "]" || code === "BracketRight")) {
     e.preventDefault();
     if (!overlayId) return true;
     if (e.altKey) studio.bringToFront(overlayId);
     else studio.bringForward(overlayId);
     return true;
   }
-  if (mod && (key === "[" || key === "BracketLeft")) {
+  if (mod && (key === "[" || code === "BracketLeft")) {
     e.preventDefault();
     if (!overlayId) return true;
     if (e.altKey) studio.sendToBack(overlayId);
@@ -202,13 +208,20 @@ export function handleStudioHotkey(e: KeyboardEvent) {
     studio.pasteOverlayStyle();
     return true;
   }
+  // ⌘C / ⌘X carry the balloon; ⌘V arrives as a paste event (see the studio).
+  if (mod && !e.altKey && !e.shiftKey && (key.toLowerCase() === "c" || key.toLowerCase() === "x")) {
+    if (!overlayId) return false;
+    e.preventDefault();
+    copyOverlayToClipboard(overlayId, key.toLowerCase() === "x");
+    return true;
+  }
   if (mod && key.toLowerCase() === "l") {
     e.preventDefault();
     if (overlayId) studio.toggleOverlayLock(overlayId);
     else if (studio.selectedPanelId) studio.togglePanelLock(studio.selectedPanelId);
     return true;
   }
-  if (key === "h" || key === "H") {
+  if ((key === "h" || key === "H") && !mod) {
     e.preventDefault();
     if (overlayId) studio.toggleOverlayHidden(overlayId);
     return true;
@@ -236,20 +249,58 @@ export function handleStudioHotkey(e: KeyboardEvent) {
     }
   }
 
-  if (key === "v" || key === "V") {
+  // Tab walks the page's balloons in stacking order, like objects in Keynote.
+  if (key === "Tab" && !mod && !e.altKey) {
+    const focus = document.activeElement;
+    const onStage =
+      !focus ||
+      focus === document.body ||
+      Boolean(focus.closest("[data-koma='page-stage']"));
+    if (!onStage) return false;
+    const list = pageOverlays(studio.currentPage()).filter((o) => !o.hidden);
+    if (!list.length) return false;
+    e.preventDefault();
+    const i = list.findIndex((o) => o.id === overlayId);
+    const dir = e.shiftKey ? -1 : 1;
+    const next = i < 0 ? (dir > 0 ? list[0] : list[list.length - 1]) : list[(i + dir + list.length) % list.length];
+    studio.selectPanel(null);
+    studio.selectOverlay(next!.id);
+    return true;
+  }
+  // Page keys walk the document.
+  if (!mod && (key === "PageDown" || key === "PageUp" || key === "Home" || key === "End")) {
+    const pages = studio.pages;
+    const i = pages.findIndex((p) => p.id === studio.currentPageId);
+    const to =
+      key === "Home" ? 0 : key === "End" ? pages.length - 1 : key === "PageDown" ? i + 1 : i - 1;
+    const target = pages[Math.max(0, Math.min(pages.length - 1, to))];
+    if (!target) return false;
+    e.preventDefault();
+    if (target.id !== studio.currentPageId) studio.setCurrentPage(target.id);
+    return true;
+  }
+
+  // ⌘V: the paste event carries the balloon; when no paste event follows
+  // (no clipboard access, or nothing editable has focus) the in-app copy pastes.
+  if (mod && !e.altKey && !e.shiftKey && key.toLowerCase() === "v") {
+    if (!studio.overlayClipboard) return false;
+    schedulePasteFallback();
+    return true;
+  }
+  if ((key === "v" || key === "V") && !mod) {
     e.preventDefault();
     studio.selectOverlay(null);
     studio.selectPanel(null);
     studio.setImageTool("frame");
     return true;
   }
-  if (key === "t" || key === "T") {
+  if ((key === "t" || key === "T") && !mod) {
     e.preventDefault();
     if (e.shiftKey) insertTitle();
     else studio.addOverlay("speech");
     return true;
   }
-  if (key === "p" || key === "P") {
+  if ((key === "p" || key === "P") && !mod) {
     e.preventDefault();
     studio.setPlacing(true);
     return true;

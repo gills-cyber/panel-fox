@@ -284,6 +284,8 @@ type StudioState = {
   readMode: boolean;
   theme: "light" | "dark";
   styleClipboard: OverlayStyle | null;
+  /** A balloon copied with ⌘C; not saved with the document. */
+  overlayClipboard: Overlay | null;
   layoutClipboard: { templateId: string; panels: Pick<PanelState, "rect" | "shape" | "rotate">[] } | null;
   rtl: boolean;
   showNumbers: boolean;
@@ -384,6 +386,10 @@ type StudioState = {
   removeOverlay: (id: string) => void;
   deleteSelection: () => void;
   duplicateOverlay: (id?: string | null) => void;
+  copyOverlay: (id?: string | null) => Overlay | null;
+  cutOverlay: (id?: string | null) => Overlay | null;
+  /** Paste the given overlay (from the system clipboard) or the in-app one. */
+  pasteOverlay: (payload?: Overlay | null) => Overlay | null;
   bringForward: (id: string) => void;
   sendBackward: (id: string) => void;
   bringToFront: (id: string) => void;
@@ -467,6 +473,7 @@ export const useStudio = create<StudioState>()(
         readMode: false,
         theme: boot.theme === "dark" ? "dark" : "light",
         styleClipboard: null,
+        overlayClipboard: null,
         layoutClipboard: null,
         rtl: Boolean(boot.rtl),
         showNumbers: Boolean(boot.showNumbers),
@@ -1580,6 +1587,52 @@ export const useStudio = create<StudioState>()(
             selectedOverlayId: copy.id,
             selectedPanelId: null,
           });
+        },
+
+        copyOverlay: (id) => {
+          const s = get();
+          const oid = id ?? s.selectedOverlayId;
+          const src = pageOverlays(s.currentPage()).find((o) => o.id === oid);
+          if (!src) return null;
+          const clip: Overlay = { ...src, scriptLineId: undefined, chainId: undefined };
+          set({ overlayClipboard: clip });
+          return clip;
+        },
+
+        cutOverlay: (id) => {
+          const clip = get().copyOverlay(id);
+          if (clip) get().removeOverlay(clip.id);
+          return clip;
+        },
+
+        pasteOverlay: (payload) => {
+          const s = get();
+          const src = payload ?? s.overlayClipboard;
+          if (!src) return null;
+          const page = s.currentPage();
+          const list = pageOverlays(page);
+          // Pasting over the original cascades it, like Keynote; onto another
+          // page it lands where it was.
+          const shift = list.some((o) => o.id === src.id || (o.x === src.x && o.y === src.y)) ? 4 : 0;
+          const copy: Overlay = {
+            ...src,
+            id: uid("ov"),
+            x: clamp(src.x + shift, 0, 100 - src.w),
+            y: clamp(src.y + shift, 0, 100 - src.h),
+            scriptLineId: undefined,
+            chainId: undefined,
+            hidden: false,
+          };
+          commit({
+            pages: patchPage(s.pages, s.currentPageId, (p) => ({
+              ...p,
+              overlays: [...list, copy],
+            })),
+            selectedOverlayId: copy.id,
+            selectedPanelId: null,
+            overlayClipboard: payload ? s.overlayClipboard : { ...src, x: copy.x, y: copy.y },
+          });
+          return copy;
         },
 
         bringForward: (id) => {

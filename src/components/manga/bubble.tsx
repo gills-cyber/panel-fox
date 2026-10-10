@@ -753,6 +753,14 @@ function BubbleInner({
           remove();
           return;
         }
+        // Return opens the text for editing, as it renames a file in the Finder.
+        if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+          if (overlay.kind === "sticker" || overlay.kind === "tone" || overlay.locked) return;
+          e.preventDefault();
+          e.stopPropagation();
+          setTextEditing(true);
+          return;
+        }
         if (overlay.kind === "sticker" || overlay.kind === "tone" || isDialogue(overlay.kind)) {
           if (e.key === "-" || e.key === "_") {
             e.preventDefault();
