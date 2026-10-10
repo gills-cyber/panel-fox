@@ -672,10 +672,13 @@ img {
   left: 50%;
   z-index: 60;
   display: flex;
-  flex-wrap: nowrap;
+  /* Never clip: the font and size menus open out of this bar. A bar wider
+     than the stage wraps onto a second row instead of scrolling. */
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 2px;
+  width: max-content;
   max-width: min(94vw, 56rem);
   padding: 4px;
   border-radius: 12px;
@@ -683,9 +686,6 @@ img {
   box-shadow: var(--shadow-float);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
-  overflow-x: auto;
-  overflow-y: visible;
-  scrollbar-width: thin;
   animation: koma-pop-in var(--motion-fast) var(--ease-spring) backwards;
 }
 .koma-ov-bar button {
@@ -693,6 +693,7 @@ img {
   align-items: center;
   justify-content: center;
   gap: 0.25rem;
+  white-space: nowrap;
   min-height: 2.5rem;
   padding: 0 0.7rem;
   border-radius: 8px;

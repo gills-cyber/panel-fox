@@ -51,28 +51,35 @@ function overlayBarStyle(overlay: Overlay): CSSProperties {
   const roomAbove = overlay.y >= 12;
   const tailUp = dialogue && overlay.tailY < 40;
   const roomBelow = overlay.y + overlay.h <= 78;
+  // `--bar-shift` nudges the bar sideways so it never leaves the stage.
+  const mid = "calc(-50% + var(--bar-shift, 0px))";
   if (dialogue) {
     if (roomAbove && !tailUp) {
-      return { left: "50%", top: 0, transform: "translate(-50%, calc(-100% - 8px))" };
+      return { left: "50%", top: 0, transform: `translate(${mid}, calc(-100% - 8px))` };
     }
     if (roomBelow && tailUp) {
-      return { left: "50%", top: "100%", transform: "translate(-50%, 10px)" };
+      return { left: "50%", top: "100%", transform: `translate(${mid}, 10px)` };
     }
     if (overlay.x + overlay.w / 2 < 52) {
-      return { left: "100%", top: 0, transform: "translate(8px, 0)" };
+      return { left: "100%", top: 0, transform: "translate(calc(8px + var(--bar-shift, 0px)), 0)" };
     }
-    return { left: 0, top: 0, transform: "translate(calc(-100% - 8px), 0)" };
+    return { left: 0, top: 0, transform: "translate(calc(-100% - 8px + var(--bar-shift, 0px)), 0)" };
   }
   if (overlay.y < 8) {
-    return { left: "50%", top: "100%", transform: "translate(-50%, 10px)" };
+    return { left: "50%", top: "100%", transform: `translate(${mid}, 10px)` };
   }
-  return { left: "50%", top: 0, transform: "translate(-50%, calc(-100% - 8px))" };
+  return { left: "50%", top: 0, transform: `translate(${mid}, calc(-100% - 8px))` };
 }
 
 function overlayPopStyle(overlay: Overlay): CSSProperties {
   const bar = overlayBarStyle(overlay);
   if (bar.top === 0 || bar.top === "0") {
-    return { left: "50%", top: 0, transform: "translate(-50%, calc(-100% - 84px))" };
+    // Above the bar when there is headroom, otherwise under the balloon so the
+    // header never clips it.
+    if (overlay.y >= 30) {
+      return { left: "50%", top: 0, transform: "translate(-50%, calc(-100% - 84px))" };
+    }
+    return { left: "50%", top: "100%", transform: "translate(-50%, 52px)" };
   }
   if (bar.top === "100%") {
     return { left: "50%", top: "100%", transform: "translate(-50%, 52px)" };
@@ -188,6 +195,38 @@ function BubbleInner({
   overlayRef.current = overlay;
   const liveDragRef = useRef(liveDrag);
   liveDragRef.current = liveDrag;
+
+  // Keep the floating format bar inside the stage: measure it unshifted once
+  // the selection or the committed box changes, then nudge it sideways.
+  const barRef = useRef<HTMLDivElement>(null);
+  const [barShift, setBarShift] = useState(0);
+  useEffect(() => {
+    if (!selected || hideBar || liveDrag) return;
+    const measure = () => {
+      const bar = barRef.current;
+      const stage = bar?.closest<HTMLElement>('[data-koma="page-stage"]');
+      if (!bar || !stage) return;
+      // Work out where the bar would sit unshifted and unscaled (its pop-in
+      // scales about its centre) without writing styles, so no extra layout.
+      const b = bar.getBoundingClientRect();
+      const st = stage.getBoundingClientRect();
+      const shiftNow = parseFloat(bar.style.getPropertyValue("--bar-shift")) || 0;
+      const half = bar.offsetWidth / 2;
+      const cx = (b.left + b.right) / 2 - shiftNow;
+      const over = Math.max(0, cx + half - (st.right - 12));
+      const under = Math.max(0, st.left + 12 - (cx - half));
+      const next = Math.round(under - over);
+      setBarShift((cur) => (cur === next ? cur : next));
+    };
+    // After paint, so reading the rects forces no layout; the balloon box also
+    // eases into nudged or snapped positions, so look again once it has settled.
+    const raf = window.requestAnimationFrame(measure);
+    const t = window.setTimeout(measure, 360);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.clearTimeout(t);
+    };
+  }, [selected, hideBar, liveDrag, overlay.x, overlay.y, overlay.w, overlay.h]);
   const textEditingRef = useRef(textEditing);
   textEditingRef.current = textEditing;
   const pendingCaret = useRef<number | null>(null);
@@ -906,9 +945,10 @@ function BubbleInner({
 
       {selected && !hideBar ? (
         <div
+          ref={barRef}
           className="koma-ov-bar"
           data-koma="letter-bar"
-          style={barStyle}
+          style={{ ...barStyle, ["--bar-shift" as string]: `${barShift}px` }}
           onPointerDown={(e) => {
             e.stopPropagation();
             if ((e.target as HTMLElement).closest("button, input, textarea, select, label, [role='slider'], [data-koma='sticker-opacity']")) return;
