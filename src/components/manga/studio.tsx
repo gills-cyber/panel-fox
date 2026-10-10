@@ -16,6 +16,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  ChevronsUpDown,
   Cloud,
   FileText,
   FolderOpen,
@@ -1242,7 +1243,7 @@ export function Studio() {
 
         <aside className="koma-glass-side hidden w-72 shrink-0 flex-col overflow-y-auto border-l border-line/60 md:flex">
           <div className="flex h-10 shrink-0 items-center border-b border-line/60 px-4">
-            <p className="text-sm font-medium">
+            <p className="truncate text-sm font-medium">
               {tab === "document"
                 ? "Document"
                 : tab === "script"
@@ -1254,6 +1255,16 @@ export function Studio() {
                       : selected
                         ? "Panel"
                         : "Format"}
+              {tab === "format" &&
+              selectedOverlay &&
+              selectedOverlay.kind !== "sticker" ? (
+                <span className="ml-1.5 text-[11px] font-normal text-muted">
+                  {isDialogue(selectedOverlay.kind) || selectedOverlay.kind === "narration"
+                    ? `${BALLOON_STYLES.find((b) => b.id === balloonStyleOf(selectedOverlay))?.label ?? "Oval"} · `
+                    : ""}
+                  {letterFont(selectedOverlay.fontId || defaultFontId(selectedOverlay.kind)).label}
+                </span>
+              ) : null}
             </p>
           </div>
           {tab === "script" ? (
@@ -2112,22 +2123,24 @@ function Inspector({
   }
 
   return (
-    <div className="flex flex-col gap-5 px-4 pb-8 pt-4">
+    <div className="flex flex-col px-4 pb-8 pt-3">
       {showFormat ? (
-        <section className="space-y-4">
-          <InsertTools onAdded={onAdded} />
-          <label
-            htmlFor="koma-file"
-            className="flex min-h-12 cursor-pointer items-center justify-center rounded-md bg-ink/5 text-xs font-medium active:bg-ink/15 hover:bg-ink/10"
-            onPointerDown={() => onArmFile?.()}
-          >
-            Choose photo
-          </label>
+        <>
+          <section className="koma-group">
+            <InsertTools onAdded={onAdded} />
+          </section>
+          <section className="koma-group">
+          <Button asChild variant="outline" size="sm" className="w-full">
+            <label htmlFor="koma-file" onPointerDown={() => onArmFile?.()}>
+              <ImagePlus />
+              Choose Photo…
+            </label>
+          </Button>
           {overlay ? (
             <OverlayEditor overlay={overlay} />
           ) : selected && image ? (
             <>
-              <p className="text-xs font-medium text-muted">Edit</p>
+              <p className="text-[11px] font-medium text-muted">Edit</p>
               <Segmented
                 options={[
                   { id: "frame", label: "Panel" },
@@ -2138,7 +2151,7 @@ function Inspector({
                   useStudio.getState().setImageTool(id as "frame" | "crop")
                 }
               />
-              <p className="text-xs font-medium text-muted">Image</p>
+              <p className="text-[11px] font-medium text-muted">Image</p>
               <Segmented
                 options={[
                   { id: "cover", label: "Fill" },
@@ -2151,7 +2164,7 @@ function Inspector({
                   })
                 }
               />
-              <Field label="Size">
+              <Field label="Size" value={`${Math.round(image.zoom * 100)}%`}>
                 <Slider
                   min={IMAGE_ZOOM_MIN}
                   max={IMAGE_ZOOM_MAX}
@@ -2164,7 +2177,7 @@ function Inspector({
                   }
                 />
               </Field>
-              <Field label="Brightness">
+              <Field label="Brightness" value={`${image.brightness ?? 100}%`}>
                 <Slider
                   min={50}
                   max={160}
@@ -2177,7 +2190,7 @@ function Inspector({
                   }
                 />
               </Field>
-              <Field label="Contrast">
+              <Field label="Contrast" value={`${image.contrast ?? 100}%`}>
                 <Slider
                   min={50}
                   max={160}
@@ -2228,7 +2241,7 @@ function Inspector({
                   Flip Y
                 </Button>
               </div>
-              <p className="text-xs leading-relaxed text-muted">
+              <p className="text-[11px] leading-[1.45] text-muted">
                 {imageTool === "crop"
                   ? "Drag inside to pan. Drag the white corners to scale. The panel crops the photo."
                   : "Drag the blue handles to resize the panel. Switch to Crop to scale the photo inside it."}
@@ -2262,26 +2275,34 @@ function Inspector({
               </div>
             </>
           ) : selected ? (
-            <p className="text-sm leading-relaxed text-muted">
+            <p className="text-[12px] leading-[1.45] text-muted">
               Drop an image into this panel. Drag the blue handles to resize
               the frame.
             </p>
           ) : (
-            <p className="text-sm leading-relaxed text-muted">
+            <p className="text-[12px] leading-[1.45] text-muted">
               Select a panel to crop its photo, add a speech bubble, or drop
               clinic icons and a logo onto a brochure.
             </p>
           )}
-        </section>
+          </section>
+        </>
       ) : null}
 
       {showDocument ? (
-        <section className="space-y-4">
+        <>
           {showAll ? (
-            <p className="text-xs font-medium text-muted">Document</p>
+            <section className="koma-group">
+              <p className="text-[11px] font-medium text-muted">Document</p>
+            </section>
           ) : null}
-          <BookInspector />
-          <ProjectPanel />
+          <section className="koma-group">
+            <BookInspector />
+          </section>
+          <section className="koma-group">
+            <ProjectPanel />
+          </section>
+          <section className="koma-group">
           <LogoLibrary
             logos={logos}
             onUpload={uploadLogo}
@@ -2305,7 +2326,9 @@ function Inspector({
           >
             Start clinic brochure
           </Button>
-          <Field label="Gutter">
+          </section>
+          <section className="koma-group">
+          <Field label="Gutter" value={`${gutter.toFixed(2)} mm`}>
             <Slider
               min={0.4}
               max={4}
@@ -2317,7 +2340,7 @@ function Inspector({
               }
             />
           </Field>
-          <Field label="Margin">
+          <Field label="Margin" value={`${margin.toFixed(2)} mm`}>
             <Slider
               min={1.5}
               max={8}
@@ -2329,7 +2352,7 @@ function Inspector({
               }
             />
           </Field>
-          <Field label="Border">
+          <Field label="Border" value={`${border.toFixed(2)} mm`}>
             <Slider
               min={0.2}
               max={1.6}
@@ -2341,7 +2364,7 @@ function Inspector({
             />
           </Field>
           <div>
-            <p className="mb-2 text-xs font-medium text-muted">Page size</p>
+            <p className="mb-2 text-[11px] font-medium text-muted">Page size</p>
             <div className="flex flex-wrap gap-1">
               {PAPER_SIZES.map((size) => (
                 <button
@@ -2360,7 +2383,7 @@ function Inspector({
                 </button>
               ))}
             </div>
-            <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
+            <p className="mt-1.5 text-[11px] leading-[1.45] text-muted">
               {PAPER_SIZES.find((s) => s.id === paperSize)?.blurb ?? "Print draft"}
               {paperSize === "webtoon"
                 ? " · File → Export → Strip or Canvas."
@@ -2368,7 +2391,7 @@ function Inspector({
             </p>
           </div>
           <div>
-            <p className="mb-2 text-xs font-medium text-muted">Paper</p>
+            <p className="mb-2 text-[11px] font-medium text-muted">Paper</p>
             <Segmented
               options={[
                 { id: "cream", label: "Cream" },
@@ -2379,6 +2402,8 @@ function Inspector({
               onChange={(id) => useStudio.getState().setPaper(id as PaperTone)}
             />
           </div>
+          </section>
+          <section className="koma-group">
           <CheckRow
             label="Snap to edges"
             checked={snapEdges}
@@ -2407,8 +2432,10 @@ function Inspector({
             checked={showNumbers}
             onChange={(v) => useStudio.getState().setShowNumbers(v)}
           />
+          </section>
+          <section className="koma-group">
           {hasCustomLayout ? (
-            <p className="text-xs leading-relaxed text-muted">
+            <p className="text-[11px] leading-[1.45] text-muted">
               Layout was edited by dragging panel edges. Reset to use gutter
               and margin again.
             </p>
@@ -2438,7 +2465,8 @@ function Inspector({
           >
             Clear all panels
           </Button>
-        </section>
+          </section>
+        </>
       ) : null}
     </div>
   );
@@ -2455,7 +2483,7 @@ function InsertToolsInner({ onAdded }: { onAdded?: () => void }) {
 
   return (
     <div>
-      <p className="mb-2 text-xs font-medium text-muted">Lettering</p>
+      <p className="mb-1.5 text-[11px] font-medium text-muted">Lettering</p>
       <div className="grid grid-cols-5 gap-1">
         <InsertBtn label="Speech" onClick={() => add("speech")}>
           <MessageCircle />
@@ -2541,25 +2569,37 @@ function InsertFold({
     }
   }, [koma, open]);
   return (
-    <div className="mt-3" data-koma={koma}>
+    <div className="mt-2" data-koma={koma}>
       <button
         type="button"
         aria-expanded={open}
         aria-controls={`${koma}-body`}
         data-koma={`${koma}-toggle`}
         onClick={() => setOpen((v) => !v)}
-        className="mb-2 flex min-h-9 w-full items-center justify-between rounded-md px-1 text-xs font-medium text-muted hover:bg-ink/5 hover:text-ink"
+        className="flex h-7 w-full items-center gap-1.5 rounded-[5px] px-1 text-[11px] font-medium text-muted hover:text-ink"
       >
-        {title}
-        <ChevronDown
-          className={cn("size-3.5 transition-transform", open ? "rotate-180" : "")}
+        <ChevronRight
+          className={cn(
+            "size-3 transition-transform duration-[var(--motion-quick)] ease-[var(--ease-out)]",
+            open && "rotate-90",
+          )}
+          strokeWidth={2.25}
         />
+        {title}
       </button>
-      {open ? (
-        <div id={`${koma}-body`} data-koma={`${koma}-body`}>
-          {children}
+      <div
+        className="grid transition-[grid-template-rows] duration-[var(--motion-fast)] ease-[var(--ease-smooth-out)] motion-reduce:transition-none"
+        style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
+      >
+        <div
+          id={`${koma}-body`}
+          data-koma={`${koma}-body`}
+          className="min-h-0 overflow-hidden"
+          inert={!open || undefined}
+        >
+          <div className="pb-1 pt-1">{children}</div>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }
@@ -2652,7 +2692,7 @@ function LogoLibrary({
 }) {
   return (
     <div data-koma="logo-library">
-      <p className="mb-2 text-xs font-medium text-muted">Company logo</p>
+      <p className="mb-2 text-[11px] font-medium text-muted">Company logo</p>
       <button
         type="button"
         data-koma="upload-logo"
@@ -2695,7 +2735,7 @@ function LogoLibrary({
           ))}
         </div>
       ) : (
-        <p className="text-xs leading-relaxed text-muted">
+        <p className="text-[11px] leading-[1.45] text-muted">
           PNG or SVG with a transparent background looks best on the page.
         </p>
       )}
@@ -2708,8 +2748,8 @@ function OverlayEditor({ overlay }: { overlay: Overlay }) {
   if (overlay.kind === "sticker") {
     return (
       <div className="space-y-3">
-        <p className="text-xs font-medium text-muted">Sticker</p>
-        <p className="text-xs leading-relaxed text-muted">
+        <p className="text-[11px] font-medium text-muted">Sticker</p>
+        <p className="text-[11px] leading-[1.45] text-muted">
           Drag to move. Drag a corner to resize.
         </p>
         <Button
@@ -2725,14 +2765,7 @@ function OverlayEditor({ overlay }: { overlay: Overlay }) {
   }
 
   return (
-    <div className="space-y-4">
-      <p className="text-xs font-medium text-muted">
-        {overlayLabel(overlay.kind)}
-        {isDialogue(overlay.kind) || overlay.kind === "narration"
-          ? ` · ${BALLOON_STYLES.find((s) => s.id === balloonStyleOf(overlay))?.label ?? "Oval"}`
-          : ""}{" "}
-        · {letterFont(overlay.fontId || defaultFontId(overlay.kind)).label}
-      </p>
+    <div className="space-y-3">
       {isDialogue(overlay.kind) || overlay.kind === "narration" ? (
         <Field label="Balloon">
           <BalloonStylePicker overlay={overlay} />
@@ -2750,7 +2783,7 @@ function OverlayEditor({ overlay }: { overlay: Overlay }) {
           }
         />
       </Field>
-      <Field label="Type size">
+      <Field label="Type size" value={`${overlay.fontSize} pt`}>
         <Slider
           min={LETTER_FONT_MIN}
           max={LETTER_FONT_MAX}
@@ -2769,22 +2802,27 @@ function OverlayEditor({ overlay }: { overlay: Overlay }) {
       </Field>
       {isDialogue(overlay.kind) ? (
         <Field label="Speaker">
-          <select
-            aria-label="Speaker"
-            data-koma="overlay-speaker"
-            value={overlay.speakerId ?? ""}
-            onChange={(e) =>
-              useStudio.getState().assignSpeaker(overlay.id, e.target.value || null)
-            }
-            className="h-9 w-full rounded-[8px] bg-ink/5 px-2 text-sm outline-none"
-          >
-            <option value="">Narrator</option>
-            {cast.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          <span className="koma-popup block">
+            <select
+              aria-label="Speaker"
+              data-koma="overlay-speaker"
+              value={overlay.speakerId ?? ""}
+              onChange={(e) =>
+                useStudio.getState().assignSpeaker(overlay.id, e.target.value || null)
+              }
+              className="koma-field w-full outline-none"
+            >
+              <option value="">Narrator</option>
+              {cast.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <span aria-hidden className="koma-popup-badge">
+              <ChevronsUpDown className="size-3" strokeWidth={2.5} />
+            </span>
+          </span>
         </Field>
       ) : null}
       {isDialogue(overlay.kind) ? (
@@ -2831,66 +2869,59 @@ function OverlayEditor({ overlay }: { overlay: Overlay }) {
           </Button>
         </div>
       ) : null}
-      <div className="flex gap-1">
-        <button
-          type="button"
-          aria-label="Bold"
-          onClick={() =>
-            useStudio.getState().updateOverlay(overlay.id, {
-              bold: !overlay.bold,
-            })
-          }
-          className={cn(
-            "flex size-8 items-center justify-center rounded-md",
-            overlay.bold ? "bg-ink text-paper" : "bg-ink/5 hover:bg-ink/10",
-          )}
-        >
-          <Bold className="size-4" />
-        </button>
-        <button
-          type="button"
-          aria-label="Italic"
-          onClick={() =>
-            useStudio.getState().updateOverlay(overlay.id, {
-              italic: !overlay.italic,
-            })
-          }
-          className={cn(
-            "flex size-8 items-center justify-center rounded-md",
-            overlay.italic ? "bg-ink text-paper" : "bg-ink/5 hover:bg-ink/10",
-          )}
-        >
-          <Italic className="size-4" />
-        </button>
-        {(["left", "center", "right"] as const).map((align) => (
+      <div className="flex gap-2">
+        <div className="flex rounded-[7px] bg-ink/5 p-0.5">
           <button
-            key={align}
             type="button"
-            aria-label={`Align ${align}`}
+            aria-label="Bold"
+            aria-pressed={overlay.bold}
             onClick={() =>
-              useStudio.getState().updateOverlay(overlay.id, { align })
+              useStudio.getState().updateOverlay(overlay.id, {
+                bold: !overlay.bold,
+              })
             }
             className={cn(
-              "flex size-8 items-center justify-center rounded-md",
-              (overlay.align || (overlay.kind === "text" ? "left" : "center")) ===
-                align
-                ? "bg-ink text-paper"
-                : "bg-ink/5 hover:bg-ink/10",
+              "flex size-7 items-center justify-center rounded-[5px] transition-colors duration-[var(--motion-quick)]",
+              overlay.bold ? "bg-surface text-ink shadow-tool" : "text-muted hover:text-ink",
             )}
           >
-            {align === "left" ? (
-              <AlignLeft className="size-4" />
-            ) : align === "right" ? (
-              <AlignRight className="size-4" />
-            ) : (
-              <AlignCenter className="size-4" />
-            )}
+            <Bold className="size-4" />
           </button>
-        ))}
+          <button
+            type="button"
+            aria-label="Italic"
+            aria-pressed={overlay.italic}
+            onClick={() =>
+              useStudio.getState().updateOverlay(overlay.id, {
+                italic: !overlay.italic,
+              })
+            }
+            className={cn(
+              "flex size-7 items-center justify-center rounded-[5px] transition-colors duration-[var(--motion-quick)]",
+              overlay.italic ? "bg-surface text-ink shadow-tool" : "text-muted hover:text-ink",
+            )}
+          >
+            <Italic className="size-4" />
+          </button>
+        </div>
+        <Segmented
+          className="flex-1"
+          options={[
+            { id: "left", icon: <AlignLeft className="size-4" />, label: "Align left" },
+            { id: "center", icon: <AlignCenter className="size-4" />, label: "Align center" },
+            { id: "right", icon: <AlignRight className="size-4" />, label: "Align right" },
+          ]}
+          value={overlay.align || (overlay.kind === "text" ? "left" : "center")}
+          onChange={(id) =>
+            useStudio
+              .getState()
+              .updateOverlay(overlay.id, { align: id as "left" | "center" | "right" })
+          }
+        />
       </div>
       <div>
-        <p className="mb-2 text-xs font-medium text-muted">Lettering</p>
-        <div className="flex flex-wrap items-center gap-1.5">
+        <p className="mb-1.5 text-[11px] font-medium text-muted">Lettering</p>
+        <div className="flex flex-wrap items-center gap-1">
           {LETTER_COLORS.map((c) => (
             <button
               key={c.id}
@@ -2910,7 +2941,7 @@ function OverlayEditor({ overlay }: { overlay: Overlay }) {
               style={{ background: c.id }}
             />
           ))}
-          <label className="relative flex size-11 cursor-pointer items-center justify-center overflow-hidden rounded-full shadow-tool">
+          <label className="koma-well">
             <span className="sr-only">Custom color</span>
             <input
               type="color"
@@ -2921,16 +2952,12 @@ function OverlayEditor({ overlay }: { overlay: Overlay }) {
                   color: e.target.value,
                 })
               }
-              className="absolute inset-0 size-full cursor-pointer opacity-0"
             />
-            <span
-              className="size-5 rounded-full ring-2 ring-surface"
-              style={{ background: overlay.color }}
-            />
+            <span className="koma-well-dot" style={{ background: overlay.color }} />
           </label>
         </div>
       </div>
-      <p className="text-xs leading-relaxed text-muted">
+      <p className="text-[11px] leading-[1.45] text-muted">
         Type in the bubble. Drag to move. Drag the outline to shrink it small.
         {isDialogue(overlay.kind)
           ? " Drag the tail toward the speaker, or Speaker / F to point it at someone else"
@@ -2969,7 +2996,7 @@ function BookInspector() {
           value={value}
           placeholder={placeholder}
           onChange={(e) => useStudio.getState().setBook({ [key]: e.target.value })}
-          className="h-9 w-full rounded-[8px] bg-ink/5 px-2.5 text-sm outline-none"
+          className="koma-field w-full outline-none"
         />
       </Field>
     );
@@ -2977,7 +3004,7 @@ function BookInspector() {
 
   return (
     <div className="space-y-3">
-      <p className="text-xs font-medium text-muted">Book</p>
+      <p className="text-[11px] font-medium text-muted">Book</p>
       {field("book-title", "Title", book.title, "title", "Volume title")}
       {field("book-author", "Author", book.author, "author", "Writer")}
       {field("book-series", "Series", book.series, "series", "Series name")}
@@ -2990,7 +3017,7 @@ function BookInspector() {
       />
       <div>
         <div className="mb-2 flex items-center justify-between">
-          <p className="text-xs font-medium text-muted">Chapters</p>
+          <p className="text-[11px] font-medium text-muted">Chapters</p>
           <button
             type="button"
             data-koma="add-chapter"
@@ -3001,7 +3028,7 @@ function BookInspector() {
           </button>
         </div>
         {chapters.length === 0 ? (
-          <p className="text-[11px] leading-relaxed text-muted">
+          <p className="text-[11px] leading-[1.45] text-muted">
             Mark the start of a chapter on the current page. Thumbnails group
             under the title.
           </p>
@@ -3015,7 +3042,7 @@ function BookInspector() {
                   onChange={(e) =>
                     useStudio.getState().renameChapter(ch.id, e.target.value)
                   }
-                  className="h-8 min-w-0 flex-1 rounded-[8px] bg-ink/5 px-2 text-[12px] outline-none"
+                  className="koma-field h-7 min-w-0 flex-1 text-[12px] outline-none"
                 />
                 <span className="shrink-0 text-[10px] tabular-nums text-muted">
                   {pageLabel(pages, ch.startPageId, book.coverFirst)}
@@ -3043,7 +3070,7 @@ function BookInspector() {
       >
         Pad to even spread
       </Button>
-      <p className="text-[11px] leading-relaxed text-muted">
+      <p className="text-[11px] leading-[1.45] text-muted">
         Current page is {pageLabel(pages, currentPageId, book.coverFirst)}.
       </p>
     </div>
@@ -3052,43 +3079,68 @@ function BookInspector() {
 
 function Field({
   label,
+  value,
   children,
 }: {
   label: string;
+  /** A live readout beside the label, the number every Mac slider carries. */
+  value?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <div>
-      <p className="mb-2 text-xs font-medium text-muted">{label}</p>
+      <div className="mb-1.5 flex items-baseline justify-between">
+        <p className="text-[11px] font-medium text-muted">{label}</p>
+        {value != null ? (
+          <span className="text-[11px] tabular-nums text-muted">{value}</span>
+        ) : null}
+      </div>
       {children}
     </div>
   );
 }
 
+/** NSSegmentedControl: one knob slides between the segments. */
 function Segmented({
   options,
   value,
   onChange,
+  className,
 }: {
-  options: { id: string; label: string }[];
+  options: { id: string; label: string; icon?: ReactNode }[];
   value: string;
   onChange: (id: string) => void;
+  className?: string;
 }) {
+  const n = options.length;
+  const i = Math.max(0, options.findIndex((o) => o.id === value));
   return (
-    <div className="flex rounded-[9px] bg-ink/5 p-0.5">
+    <div
+      role="radiogroup"
+      className={cn("relative flex rounded-[7px] bg-ink/5 p-0.5", className)}
+    >
+      <span
+        aria-hidden
+        className="absolute inset-y-0.5 rounded-[5px] bg-surface shadow-tool transition-[left] duration-[var(--motion-fast)] ease-[var(--ease-spring)] motion-reduce:transition-none"
+        style={{
+          width: `calc((100% - 4px) / ${n})`,
+          left: `calc(2px + (100% - 4px) * ${i} / ${n})`,
+        }}
+      />
       {options.map((opt) => (
         <button
           key={opt.id}
           type="button"
+          role="radio"
+          aria-checked={value === opt.id}
+          aria-label={opt.icon ? opt.label : undefined}
           onClick={() => onChange(opt.id)}
           className={cn(
-                "min-h-11 flex-1 rounded-[6px] text-xs font-medium transition-colors duration-[var(--motion-quick)] md:h-7 md:min-h-7",
-            value === opt.id
-              ? "bg-surface text-ink shadow-tool"
-              : "text-muted hover:text-ink",
+            "relative z-10 flex min-h-11 flex-1 items-center justify-center rounded-[5px] text-[12px] font-medium transition-colors duration-[var(--motion-quick)] md:h-7 md:min-h-7",
+            value === opt.id ? "text-ink" : "text-muted hover:text-ink",
           )}
         >
-          {opt.label}
+          {opt.icon ?? opt.label}
         </button>
       ))}
     </div>
@@ -3111,7 +3163,7 @@ function CheckRow({
   return (
     <label
       className={cn(
-        "flex items-center justify-between gap-3 text-sm",
+        "flex items-center justify-between gap-3 text-[13px]",
         disabled && "opacity-40",
       )}
       data-koma={koma}
@@ -3119,8 +3171,8 @@ function CheckRow({
       <span>{label}</span>
       <span
         className={cn(
-          "relative h-5 w-8 shrink-0 rounded-full transition-colors duration-[var(--motion-quick)]",
-          checked && !disabled ? "bg-accent" : "bg-line",
+          "relative h-5 w-8 shrink-0 rounded-full shadow-[inset_0_0_0_0.5px_rgb(0_0_0/0.08)] transition-colors duration-[var(--motion-quick)]",
+          checked && !disabled ? "bg-accent" : "bg-ink/15",
         )}
       >
         <input
@@ -3132,7 +3184,7 @@ function CheckRow({
         />
         <span
           className={cn(
-            "absolute top-0.5 left-0.5 size-4 rounded-full bg-surface shadow-tool transition-transform duration-[var(--motion-quick)]",
+            "absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow-[0_0_0_0.5px_rgb(0_0_0/0.12),0_1px_2px_rgb(0_0_0/0.25)] transition-transform duration-[var(--motion-fast)] ease-[var(--ease-spring)] motion-reduce:transition-none",
             checked && "translate-x-3",
           )}
         />

@@ -181,7 +181,7 @@ export function PageContextMenu({
           placeholder="7"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          className="h-8 min-w-0 flex-1 rounded-[8px] bg-ink/5 px-2 text-sm outline-none"
+          className="koma-field h-7 min-w-0 flex-1"
         />
         <button
           type="submit"

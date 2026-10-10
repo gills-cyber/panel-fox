@@ -1,5 +1,5 @@
 import { useRef, type ChangeEvent } from "react";
-import { Plus, Trash2, UserPlus } from "lucide-react";
+import { ChevronsUpDown, Plus, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fileToLogoSrc } from "@/lib/manga/image";
 import { SCRIPT_KINDS, speakerOf } from "@/lib/manga/script";
@@ -41,7 +41,7 @@ export function ScriptPanel({ compact = false }: { compact?: boolean }) {
 
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <p className="text-xs font-medium text-muted">Cast</p>
+          <p className="text-[11px] font-medium text-muted">Cast</p>
           <button
             type="button"
             data-koma="script-add-cast"
@@ -92,7 +92,7 @@ export function ScriptPanel({ compact = false }: { compact?: boolean }) {
                   onChange={(e) =>
                     useStudio.getState().renameCast(member.id, e.target.value)
                   }
-                  className="h-8 min-w-0 flex-1 rounded-[7px] bg-transparent px-1.5 text-[13px] outline-none focus:bg-surface"
+                  className="koma-field h-7 min-w-0 flex-1"
                 />
                 {member.portrait ? (
                   <button
@@ -120,7 +120,7 @@ export function ScriptPanel({ compact = false }: { compact?: boolean }) {
 
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <p className="text-xs font-medium text-muted">Script</p>
+          <p className="text-[11px] font-medium text-muted">Script</p>
           <button
             type="button"
             data-koma="script-add-line"
@@ -157,39 +157,49 @@ export function ScriptPanel({ compact = false }: { compact?: boolean }) {
                     >
                       {i + 1}
                     </span>
-                    <select
-                      aria-label="Speaker"
-                      value={line.speakerId ?? ""}
-                      onChange={(e) =>
-                        useStudio.getState().updateScriptLine(line.id, {
-                          speakerId: e.target.value || null,
-                        })
-                      }
-                      className="h-8 min-w-0 flex-1 rounded-[7px] bg-surface/80 px-1.5 text-[12px] outline-none"
-                    >
-                      <option value="">Narrator</option>
-                      {cast.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      aria-label="Line type"
-                      value={line.kind}
-                      onChange={(e) =>
-                        useStudio.getState().updateScriptLine(line.id, {
-                          kind: e.target.value as (typeof SCRIPT_KINDS)[number]["id"],
-                        })
-                      }
-                      className="h-8 w-[5.6rem] shrink-0 rounded-[7px] bg-surface/80 px-1 text-[12px] outline-none"
-                    >
-                      {SCRIPT_KINDS.map((k) => (
-                        <option key={k.id} value={k.id}>
-                          {k.label}
-                        </option>
-                      ))}
-                    </select>
+                    <span className="koma-popup min-w-0 flex-1">
+                      <select
+                        aria-label="Speaker"
+                        value={line.speakerId ?? ""}
+                        onChange={(e) =>
+                          useStudio.getState().updateScriptLine(line.id, {
+                            speakerId: e.target.value || null,
+                          })
+                        }
+                        className="koma-field h-7 w-full text-[12px] outline-none"
+                      >
+                        <option value="">Narrator</option>
+                        {cast.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                      <span aria-hidden className="koma-popup-badge">
+                        <ChevronsUpDown className="size-3" strokeWidth={2.5} />
+                      </span>
+                    </span>
+                    <span className="koma-popup w-[5.9rem] shrink-0">
+                      <select
+                        aria-label="Line type"
+                        value={line.kind}
+                        onChange={(e) =>
+                          useStudio.getState().updateScriptLine(line.id, {
+                            kind: e.target.value as (typeof SCRIPT_KINDS)[number]["id"],
+                          })
+                        }
+                        className="koma-field h-7 w-full text-[12px] outline-none"
+                      >
+                        {SCRIPT_KINDS.map((k) => (
+                          <option key={k.id} value={k.id}>
+                            {k.label}
+                          </option>
+                        ))}
+                      </select>
+                      <span aria-hidden className="koma-popup-badge">
+                        <ChevronsUpDown className="size-3" strokeWidth={2.5} />
+                      </span>
+                    </span>
                   </div>
                   <textarea
                     value={line.text}
@@ -202,7 +212,7 @@ export function ScriptPanel({ compact = false }: { compact?: boolean }) {
                       })
                     }
                     onFocus={() => useStudio.getState().focusScriptLine(line.id)}
-                    className="mb-1.5 w-full resize-none rounded-[8px] bg-surface/90 px-2 py-1.5 text-[13px] leading-snug outline-none ring-1 ring-line/60 focus:ring-ink/20"
+                    className="koma-field mb-1.5 w-full resize-none leading-snug outline-none"
                   />
                   <div className="flex items-center justify-between gap-1">
                     <Button

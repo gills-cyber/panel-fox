@@ -498,7 +498,7 @@ export function ProjectPanel() {
   return (
     <div className="space-y-3" data-koma="project-panel">
       <div>
-        <p className="text-xs font-medium text-muted">This manga</p>
+        <p className="text-[11px] font-medium text-muted">This manga</p>
         <p className="mt-1 truncate text-sm font-medium" data-koma="project-name">
           {name || "Untitled"}
           {!id ? (
@@ -545,7 +545,7 @@ export function ProjectPanel() {
       {recent.length ? (
         <div>
           <div className="mb-1.5 flex items-center justify-between">
-            <p className="text-xs font-medium text-muted">Recent</p>
+            <p className="text-[11px] font-medium text-muted">Recent</p>
             <button
               type="button"
               className="text-[11px] font-medium text-accent hover:underline"

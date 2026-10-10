@@ -11,13 +11,13 @@ const buttonVariants = cva(
         default: "bg-accent text-accent-fg hover:bg-accent/90",
         hanko: "bg-accent text-accent-fg hover:bg-accent/90",
         outline:
-          "border border-line bg-surface text-ink shadow-tool hover:bg-paper-shadow",
+          "bg-surface text-ink shadow-[0_0_0_0.5px_rgb(0_0_0/0.18),0_1px_1px_rgb(0_0_0/0.06)] hover:bg-paper-shadow active:bg-ink/8 dark:bg-ink/10 dark:shadow-[0_0_0_0.5px_rgb(255_255_255/0.14)] dark:hover:bg-ink/15",
         ghost: "text-ink hover:bg-ink/5",
         muted: "bg-ink/5 text-ink hover:bg-ink/10",
       },
       size: {
         default: "h-10 px-3.5",
-        sm: "h-8 rounded-sm px-2.5 text-xs",
+        sm: "h-7 rounded-[6px] px-3 text-[13px] [&_svg]:size-3.5",
         lg: "h-11 px-5",
         icon: "size-10",
         "icon-sm": "size-8 rounded-sm",

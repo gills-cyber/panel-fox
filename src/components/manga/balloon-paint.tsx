@@ -26,7 +26,7 @@ function Swatches({
 }) {
   const current = (value || "").toLowerCase();
   return (
-    <div className="flex flex-wrap items-center gap-1.5" data-koma={name}>
+    <div className="flex flex-wrap items-center gap-1" data-koma={name}>
       {colors.map((c) => (
         <button
           key={c.id}
@@ -49,17 +49,16 @@ function Swatches({
           />
         </button>
       ))}
-      <label className="relative flex size-11 cursor-pointer items-center justify-center overflow-hidden rounded-full shadow-tool">
+      <label className="koma-well">
         <span className="sr-only">Custom {name}</span>
         <input
           type="color"
           value={hexOrFallback(value, "#ffffff")}
           aria-label={`Custom ${name}`}
           onChange={(e) => onChange(e.target.value)}
-          className="absolute inset-0 size-full cursor-pointer opacity-0"
         />
         <span
-          className="size-5 rounded-full ring-2 ring-surface"
+          className="koma-well-dot"
           data-clear={isClearPaint(value) ? "true" : undefined}
           style={isClearPaint(value) ? undefined : { background: hexOrFallback(value, "#ffffff") }}
         />
@@ -134,7 +133,7 @@ export function BalloonPaintControls({
   return (
     <div className="space-y-3">
       <div>
-        <p className="mb-2 text-xs font-medium text-muted">Fill</p>
+        <p className="mb-1.5 text-[11px] font-medium text-muted">Fill</p>
         <Swatches
           name="balloon-fill"
           value={fill}
@@ -143,7 +142,7 @@ export function BalloonPaintControls({
         />
       </div>
       <div>
-        <p className="mb-2 text-xs font-medium text-muted">Outline</p>
+        <p className="mb-1.5 text-[11px] font-medium text-muted">Outline</p>
         <Swatches
           name="balloon-outline"
           value={stroke}
