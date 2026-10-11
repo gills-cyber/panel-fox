@@ -23,7 +23,7 @@ import type {
 import { SAMPLES } from "./samples";
 import { boxesForPage, getTemplate, layoutTemplate, panelIds } from "./templates";
 import { freshImage } from "./image";
-import { makeOverlay, pageOverlays, demoOverlays, isDialogue, flipDialogueTail, fitBubbleSize } from "./lettering";
+import { makeOverlay, pageOverlays, demoOverlays, isDialogue, flipDialogueTail, fitBubbleSize, overlayKindLabel } from "./lettering";
 import type { SnapGuide } from "./balloons";
 import { roundRect } from "./resize";
 import { clamp, uid } from "@/lib/utils";
@@ -197,6 +197,8 @@ function patchPage(
 }
 
 type HistorySnap = {
+  /** What undoing this step undoes, for the Edit menu ("Undo Move"). */
+  label?: string;
   pages: PageState[];
   currentPageId: string;
   gutter: number;
@@ -350,7 +352,11 @@ type StudioState = {
   selectOverlays: (ids: string[], primary?: string | null) => void;
   selectAllOverlays: () => void;
   /** Move several balloons at once; `live` while a drag is under way. */
-  moveOverlays: (moves: { id: string; x: number; y: number }[], live?: boolean) => void;
+  moveOverlays: (
+    moves: { id: string; x: number; y: number }[],
+    live?: boolean,
+    label?: string,
+  ) => void;
   removeOverlays: (ids: string[]) => void;
   alignSelection: (mode: AlignMode) => void;
   distributeSelection: (axis: "x" | "y") => void;
@@ -434,7 +440,7 @@ type StudioState = {
   flipOverlayTail: (id?: string | null, axis?: "x" | "y") => void;
   updateOverlay: (id: string, patch: Partial<Overlay>, live?: boolean) => void;
   beginLiveEdit: () => void;
-  endLiveEdit: (record?: boolean) => void;
+  endLiveEdit: (record?: boolean, label?: string) => void;
   removeOverlay: (id: string) => void;
   deleteSelection: () => void;
   duplicateOverlay: (id?: string | null) => void;
@@ -479,7 +485,7 @@ const boot = readPrefs();
 export const useStudio = create<StudioState>()(
   persist(
     (set, get) => {
-      function commit(extra: Partial<StudioState>) {
+      function commit(extra: Partial<StudioState>, label?: string) {
         const s = get();
         const now = Date.now();
         const record = now - lastRecordAt > HISTORY_GAP;
@@ -487,11 +493,13 @@ export const useStudio = create<StudioState>()(
         set({
           ...extra,
           past: record
-            ? [...s.past.slice(-(HISTORY_MAX - 1)), takeSnap(s)]
+            ? [...s.past.slice(-(HISTORY_MAX - 1)), { ...takeSnap(s), label }]
             : s.past,
           future: record ? [] : s.future,
         });
       }
+      /** `commit` with the step's name first, so a call site reads as a sentence. */
+      const commitAs = (label: string, extra: Partial<StudioState>) => commit(extra, label);
 
       return {
         pages: [first],
@@ -605,7 +613,7 @@ export const useStudio = create<StudioState>()(
             .map((o) => o.id);
           get().selectOverlays(ids);
         },
-        moveOverlays: (moves, live = false) => {
+        moveOverlays: (moves, live = false, label = "Move") => {
           const s = get();
           const at = new Map(moves.map((m) => [m.id, m]));
           const pages = patchPage(s.pages, s.currentPageId, (page) => ({
@@ -621,12 +629,12 @@ export const useStudio = create<StudioState>()(
             set({ pages });
             return;
           }
-          commit({ pages });
+          commit({ pages }, label);
         },
         removeOverlays: (ids) => {
           const gone = new Set(ids);
           const s = get();
-          commit({
+          commitAs("Delete", {
             pages: patchPage(s.pages, s.currentPageId, (page) => ({
               ...page,
               overlays: pageOverlays(page).filter((o) => !gone.has(o.id)),
@@ -673,7 +681,7 @@ export const useStudio = create<StudioState>()(
                     ? box.y + box.h - o.h
                     : o.y,
           }));
-          get().moveOverlays(moves);
+          get().moveOverlays(moves, false, "Align");
         },
         distributeSelection: (axis) => {
           const s = get();
@@ -695,7 +703,7 @@ export const useStudio = create<StudioState>()(
             at += (axis === "x" ? o.w : o.h) + gap;
             return m;
           });
-          get().moveOverlays(moves);
+          get().moveOverlays(moves, false, "Distribute");
         },
         editPanel: (id) =>
           set({
@@ -709,7 +717,7 @@ export const useStudio = create<StudioState>()(
         setImageTool: (imageTool) => set({ imageTool }),
 
         setPageTitle: (title) => {
-          commit({
+          commitAs("Rename Page", {
             pages: patchPage(get().pages, get().currentPageId, (page) => ({
               ...page,
               title,
@@ -722,7 +730,7 @@ export const useStudio = create<StudioState>()(
           const state = get();
           const laid = layoutTemplate(spec, state.margin, state.gutter, state.rtl);
           const old = state.currentPage().panels;
-          commit({
+          commitAs("Apply Layout", {
             pages: get().pages.map((page) => {
               if (page.id !== get().currentPageId) return page;
               return {
@@ -744,7 +752,7 @@ export const useStudio = create<StudioState>()(
         },
 
         setPanelImage: (panelId, src) => {
-          commit({
+          commitAs("Place Photo", {
             pages: patchPage(get().pages, get().currentPageId, (page) => ({
               ...page,
               panels: page.panels.map((p) =>
@@ -766,7 +774,7 @@ export const useStudio = create<StudioState>()(
         },
 
         setPanelBackground: (panelId, src) => {
-          commit({
+          commitAs("Place Background", {
             pages: patchPage(get().pages, get().currentPageId, (page) => ({
               ...page,
               panels: page.panels.map((p) =>
@@ -791,7 +799,7 @@ export const useStudio = create<StudioState>()(
             return "character";
           }
           if (panel.image && !panel.background) {
-            commit({
+            commitAs("Place Photo", {
               pages: patchPage(get().pages, get().currentPageId, (page) => ({
                 ...page,
                 panels: page.panels.map((p) =>
@@ -831,7 +839,7 @@ export const useStudio = create<StudioState>()(
           const twins = pageOverlays(page).filter((o) => o.src).length;
           overlay.x = clamp(overlay.x + twins * 3, 0, 100 - overlay.w);
           overlay.y = clamp(overlay.y + twins * 3, 0, 100 - overlay.h);
-          commit({
+          commitAs("Add Character", {
             pages: patchPage(state.pages, state.currentPageId, (p) => ({
               ...p,
               overlays: [...pageOverlays(p), overlay],
@@ -842,7 +850,7 @@ export const useStudio = create<StudioState>()(
         },
 
         swapPanelLayers: (panelId) => {
-          commit({
+          commitAs("Swap Layers", {
             pages: patchPage(get().pages, get().currentPageId, (page) => ({
               ...page,
               panels: page.panels.map((p) =>
@@ -860,7 +868,7 @@ export const useStudio = create<StudioState>()(
         },
 
         clearPanelBackground: (panelId) => {
-          commit({
+          commitAs("Clear Background", {
             pages: patchPage(get().pages, get().currentPageId, (page) => ({
               ...page,
               panels: page.panels.map((p) =>
@@ -871,7 +879,7 @@ export const useStudio = create<StudioState>()(
         },
 
         stampImage: (panelId, image) => {
-          commit({
+          commitAs("Stamp Image", {
             pages: patchPage(get().pages, get().currentPageId, (page) => ({
               ...page,
               panels: page.panels.map((p) =>
@@ -886,7 +894,7 @@ export const useStudio = create<StudioState>()(
 
         swapPanels: (a, b) => {
           if (!a || !b || a === b) return;
-          commit({
+          commitAs("Swap Panels", {
             pages: patchPage(get().pages, get().currentPageId, (page) => {
               const pa = page.panels.find((p) => p.id === a);
               const pb = page.panels.find((p) => p.id === b);
@@ -919,7 +927,7 @@ export const useStudio = create<StudioState>()(
         },
 
         updateImage: (panelId, patch) => {
-          commit({
+          commitAs("Adjust Image", {
             pages: patchPage(get().pages, get().currentPageId, (page) => ({
               ...page,
               panels: page.panels.map((p) =>
@@ -932,7 +940,7 @@ export const useStudio = create<StudioState>()(
         },
 
         updateBackground: (panelId, patch) => {
-          commit({
+          commitAs("Adjust Background", {
             pages: patchPage(get().pages, get().currentPageId, (page) => ({
               ...page,
               panels: page.panels.map((p) =>
@@ -945,7 +953,7 @@ export const useStudio = create<StudioState>()(
         },
 
         clearPanel: (panelId) => {
-          commit({
+          commitAs("Clear Panel", {
             pages: patchPage(get().pages, get().currentPageId, (page) => ({
               ...page,
               panels: page.panels.map((p) =>
@@ -964,7 +972,7 @@ export const useStudio = create<StudioState>()(
             state.gutter,
             state.rtl,
           ).find((b) => b.id === panelId);
-          commit({
+          commitAs("Clear Panel", {
             pages: patchPage(state.pages, state.currentPageId, (p) => ({
               ...p,
               panels: p.panels.map((item) =>
@@ -990,7 +998,7 @@ export const useStudio = create<StudioState>()(
         },
 
         clearPage: () => {
-          commit({
+          commitAs("Clear Page", {
             pages: patchPage(get().pages, get().currentPageId, (page) => ({
               ...page,
               panels: page.panels.map((p) => ({
@@ -1008,7 +1016,7 @@ export const useStudio = create<StudioState>()(
           const spec = getTemplate(page.templateId);
           const ids = panelIds(spec);
           const hadOverlays = Boolean(page.overlays?.length);
-          commit({
+          commitAs("Fill Sample Page", {
             pages: patchPage(get().pages, get().currentPageId, (p) => ({
               ...p,
               overlays: p.overlays?.length ? p.overlays : demoOverlays(),
@@ -1030,18 +1038,18 @@ export const useStudio = create<StudioState>()(
           });
         },
 
-        setGutter: (gutter) => commit({ gutter }),
-        setMargin: (margin) => commit({ margin }),
-        setBorder: (border) => commit({ border }),
-        setPaper: (paper) => commit({ paper }),
+        setGutter: (gutter) => commitAs("Page Setup", { gutter }),
+        setMargin: (margin) => commitAs("Page Setup", { margin }),
+        setBorder: (border) => commitAs("Page Setup", { border }),
+        setPaper: (paper) => commitAs("Paper", { paper }),
         setPaperSize: (paperSize) => {
-          commit({ paperSize });
+          commitAs("Paper Size", { paperSize });
           if (paperSize === "webtoon") set({ spread: false });
         },
-        setBleed: (bleed) => commit({ bleed }),
+        setBleed: (bleed) => commitAs("Bleed", { bleed }),
         setSnapEdges: (snapEdges) => set({ snapEdges }),
         // Part of the document (saved, undoable): the look of the lettering travels with the work.
-        setHandInk: (handInk) => commit({ handInk }),
+        setHandInk: (handInk) => commitAs("Hand-drawn Ink", { handInk }),
         setSnapGuides: (snapGuides) => {
           // Dragging calls this every pointer move; only re-render the page when the guides actually change.
           const cur = get().snapGuides;
@@ -1119,7 +1127,7 @@ export const useStudio = create<StudioState>()(
           const clip = get().layoutClipboard;
           if (!clip) return;
           const id = pageId ?? get().currentPageId;
-          commit({
+          commitAs("Paste Layout", {
             pages: get().pages.map((page) => {
               if (page.id !== id) return page;
               const panels = page.panels.map((p, i) => {
@@ -1132,7 +1140,7 @@ export const useStudio = create<StudioState>()(
           });
         },
         setPanelShape: (panelId, shape) => {
-          commit({
+          commitAs("Panel Shape", {
             pages: patchPage(get().pages, get().currentPageId, (page) => ({
               ...page,
               panels: page.panels.map((p) =>
@@ -1142,7 +1150,7 @@ export const useStudio = create<StudioState>()(
           });
         },
         setPanelRotate: (panelId, rotate) => {
-          commit({
+          commitAs("Rotate Panel", {
             pages: patchPage(get().pages, get().currentPageId, (page) => ({
               ...page,
               panels: page.panels.map((p) =>
@@ -1162,7 +1170,7 @@ export const useStudio = create<StudioState>()(
           get().updateOverlay(id, { hidden: !o.hidden });
         },
         togglePanelLock: (id) => {
-          commit({
+          commitAs("Lock Panel", {
             pages: patchPage(get().pages, get().currentPageId, (page) => ({
               ...page,
               panels: page.panels.map((p) =>
@@ -1183,7 +1191,7 @@ export const useStudio = create<StudioState>()(
               : pages.findIndex((p) => p.id === beforeId);
           if (to < 0) return;
           pages.splice(to, 0, item);
-          commit({ pages, chapters: sanitizeChapters(get().chapters, pages) });
+          commitAs("Move Page", { pages, chapters: sanitizeChapters(get().chapters, pages) });
         },
         movePageEarlier: (id) => {
           const s = get();
@@ -1212,7 +1220,7 @@ export const useStudio = create<StudioState>()(
             destIndex = folioToPageIndex(dest, s.pages.length, book.coverFirst);
           }
           const pages = moveItem(s.pages, from, destIndex);
-          commit({
+          commitAs("Move Page", {
             pages,
             book,
             currentPageId: id,
@@ -1222,7 +1230,7 @@ export const useStudio = create<StudioState>()(
           });
         },
         setBook: (patch) => {
-          commit({ book: { ...get().book, ...patch } });
+          commitAs("Book Info", { book: { ...get().book, ...patch } });
         },
         addChapter: (title, startPageId) => {
           const s = get();
@@ -1232,20 +1240,20 @@ export const useStudio = create<StudioState>()(
             return s.chapters.find((c) => c.startPageId === start) ?? null;
           }
           const chapter = makeChapter(start, title, s.chapters.length + 1);
-          commit({
+          commitAs("Add Chapter", {
             chapters: sanitizeChapters([...s.chapters, chapter], s.pages),
           });
           return chapter;
         },
         renameChapter: (id, title) => {
-          commit({
+          commitAs("Rename Chapter", {
             chapters: get().chapters.map((c) =>
               c.id === id ? { ...c, title } : c,
             ),
           });
         },
         removeChapter: (id) => {
-          commit({
+          commitAs("Delete Chapter", {
             chapters: get().chapters.filter((c) => c.id !== id),
           });
         },
@@ -1254,12 +1262,12 @@ export const useStudio = create<StudioState>()(
           if (!needsPad(s.pages.length, s.book.coverFirst)) return;
           const page = makePage("blank", false);
           page.title = "Blank";
-          commit({
+          commitAs("Pad Spread", {
             pages: [...s.pages, page],
           });
         },
-        setRtl: (rtl) => commit({ rtl }),
-        setShowNumbers: (showNumbers) => commit({ showNumbers }),
+        setRtl: (rtl) => commitAs("Reading Direction", { rtl }),
+        setShowNumbers: (showNumbers) => commitAs("Page Numbers", { showNumbers }),
         setArranging: (arranging) =>
           set({
             arranging,
@@ -1281,7 +1289,7 @@ export const useStudio = create<StudioState>()(
               ? pages.length
               : Math.min(pages.length, Math.max(0, Math.round(atIndex)));
           pages.splice(i, 0, page);
-          commit({
+          commitAs("Add Page", {
             pages,
             currentPageId: page.id,
             selectedPanelId: null,
@@ -1306,7 +1314,7 @@ export const useStudio = create<StudioState>()(
           const idx = s.pages.findIndex((p) => p.id === src.id);
           const pages = [...s.pages];
           pages.splice(idx + 1, 0, copy);
-          commit({
+          commitAs("Duplicate Page", {
             pages,
             currentPageId: copy.id,
             selectedPanelId: null,
@@ -1329,7 +1337,7 @@ export const useStudio = create<StudioState>()(
             ),
             pages,
           );
-          commit({
+          commitAs("Delete Page", {
             pages,
             chapters,
             currentPageId:
@@ -1347,7 +1355,7 @@ export const useStudio = create<StudioState>()(
           }),
 
         setPanelRects: (rects) => {
-          commit({
+          commitAs("Move Panels", {
             pages: patchPage(get().pages, get().currentPageId, (page) => ({
               ...page,
               panels: page.panels.map((p) => ({
@@ -1399,7 +1407,7 @@ export const useStudio = create<StudioState>()(
           );
           const id = uid("p");
           const rest = frozenPanels(state);
-          commit({
+          commitAs("Add Panel", {
             pages: patchPage(state.pages, state.currentPageId, (p) => ({
               ...p,
               panels: [...rest, { id, image: null, background: null, rect }],
@@ -1418,7 +1426,7 @@ export const useStudio = create<StudioState>()(
           const page = state.currentPage();
           if (!page.panels.some((p) => p.id === id)) return;
           const rest = frozenPanels(state).filter((p) => p.id !== id);
-          commit({
+          commitAs("Delete Panel", {
             pages: patchPage(state.pages, state.currentPageId, (p) => ({
               ...p,
               panels: rest,
@@ -1438,7 +1446,7 @@ export const useStudio = create<StudioState>()(
           const [item] = panels.splice(i, 1);
           if (!item) return;
           panels.push(item);
-          commit({
+          commitAs("Reorder Panels", {
             pages: patchPage(get().pages, get().currentPageId, (p) => ({
               ...p,
               panels,
@@ -1454,7 +1462,7 @@ export const useStudio = create<StudioState>()(
           const [item] = panels.splice(i, 1);
           if (!item) return;
           panels.unshift(item);
-          commit({
+          commitAs("Reorder Panels", {
             pages: patchPage(get().pages, get().currentPageId, (p) => ({
               ...p,
               panels,
@@ -1463,7 +1471,7 @@ export const useStudio = create<StudioState>()(
         },
 
         resetLayout: () => {
-          commit({
+          commitAs("Reset Layout", {
             pages: patchPage(get().pages, get().currentPageId, (page) => ({
               ...page,
               panels: page.panels.map((p) => ({
@@ -1493,7 +1501,7 @@ export const useStudio = create<StudioState>()(
           const twins = pageOverlays(page).filter((o) => o.kind === kind).length;
           overlay.x = Math.min(100 - overlay.w, overlay.x + twins * 5);
           overlay.y = Math.min(100 - overlay.h, overlay.y + twins * 6);
-          commit({
+          commitAs(`Add ${overlayKindLabel(kind)}`, {
             pages: patchPage(state.pages, state.currentPageId, (p) => ({
               ...p,
               overlays: [...pageOverlays(p), overlay],
@@ -1513,7 +1521,7 @@ export const useStudio = create<StudioState>()(
           if (fitted) Object.assign(overlay, fitted);
           overlay.x = clamp(x - overlay.w / 2, 0, 100 - overlay.w);
           overlay.y = clamp(y - overlay.h / 2, 0, 100 - overlay.h);
-          commit({
+          commitAs(`Add ${overlayKindLabel(kind)}`, {
             pages: patchPage(state.pages, state.currentPageId, (p) => ({
               ...p,
               overlays: [...pageOverlays(p), overlay],
@@ -1556,7 +1564,7 @@ export const useStudio = create<StudioState>()(
           next.chainId = chainId;
           next.tailX = src.tailX;
           next.tailY = src.tailY;
-          commit({
+          commitAs("Add Chained Balloon", {
             pages: patchPage(state.pages, state.currentPageId, (p) => ({
               ...p,
               overlays: pageOverlays(p)
@@ -1577,7 +1585,7 @@ export const useStudio = create<StudioState>()(
           if (!src?.chainId) return;
           const chainId = src.chainId;
           const mates = pageOverlays(page).filter((o) => o.chainId === chainId);
-          commit({
+          commitAs("Unchain", {
             pages: patchPage(s.pages, s.currentPageId, (p) => ({
               ...p,
               overlays: pageOverlays(p).map((o) => {
@@ -1607,7 +1615,7 @@ export const useStudio = create<StudioState>()(
           const merge = new Set(
             [a.chainId, b.chainId, chainId].filter((v): v is string => Boolean(v)),
           );
-          commit({
+          commitAs("Chain Balloons", {
             pages: patchPage(s.pages, s.currentPageId, (p) => ({
               ...p,
               overlays: pageOverlays(p).map((o) =>
@@ -1688,7 +1696,23 @@ export const useStudio = create<StudioState>()(
             set({ pages, script });
             return;
           }
-          commit({ pages, script });
+          const label =
+            "text" in patch
+              ? "Typing"
+              : "hidden" in patch
+                ? patch.hidden
+                  ? "Hide"
+                  : "Show"
+                : "locked" in patch
+                  ? patch.locked
+                    ? "Lock"
+                    : "Unlock"
+                  : "w" in patch || "h" in patch
+                    ? "Resize"
+                    : "x" in patch || "y" in patch
+                      ? "Move"
+                      : "Format";
+          commit({ pages, script }, label);
         },
 
         beginLiveEdit: () => {
@@ -1698,7 +1722,7 @@ export const useStudio = create<StudioState>()(
           liveSnap = takeSnap(get());
         },
 
-        endLiveEdit: (record = true) => {
+        endLiveEdit: (record = true, label?: string) => {
           if (!liveEditing) return;
           liveEditing = false;
           persistQuiet = Math.max(0, persistQuiet - 1);
@@ -1707,7 +1731,7 @@ export const useStudio = create<StudioState>()(
           if (record && snap) {
             lastRecordAt = Date.now();
             set({
-              past: [...get().past.slice(-(HISTORY_MAX - 1)), snap],
+              past: [...get().past.slice(-(HISTORY_MAX - 1)), { ...snap, label }],
               future: [],
             });
           }
@@ -1718,7 +1742,7 @@ export const useStudio = create<StudioState>()(
           const script = get().script.map((l) =>
             l.overlayId === id ? { ...l, overlayId: null } : l,
           );
-          commit({
+          commitAs("Delete", {
             pages: patchPage(get().pages, get().currentPageId, (page) => ({
               ...page,
               overlays: pageOverlays(page).filter((o) => o.id !== id),
@@ -1791,7 +1815,7 @@ export const useStudio = create<StudioState>()(
               script = [...script.slice(0, at + 1), line, ...script.slice(at + 1)];
             }
           }
-          commit({
+          commitAs("Duplicate", {
             pages: patchPage(s.pages, s.currentPageId, (p) => ({
               ...p,
               overlays: list,
@@ -1861,7 +1885,7 @@ export const useStudio = create<StudioState>()(
             const at = script.findIndex((l) => l.id === line.id);
             script = [...script.slice(0, at + 1), fresh, ...script.slice(at + 1)];
           }
-          commit({
+          commitAs("Paste", {
             pages: patchPage(s.pages, s.currentPageId, (p) => ({
               ...p,
               overlays: [...list, copy],
@@ -1882,7 +1906,7 @@ export const useStudio = create<StudioState>()(
           const i = list.findIndex((o) => o.id === id);
           if (i < 0 || i >= list.length - 1) {
             if (i >= 0) {
-              commit({
+              commitAs("Bring Forward", {
                 pages: patchPage(get().pages, get().currentPageId, (p) => ({
                   ...p,
                   overlays: list,
@@ -1891,7 +1915,7 @@ export const useStudio = create<StudioState>()(
             }
             return;
           }
-          commit({
+          commitAs("Bring Forward", {
             pages: patchPage(get().pages, get().currentPageId, (p) => ({
               ...p,
               overlays: moveOverlay(list, id, i + 1),
@@ -1904,7 +1928,7 @@ export const useStudio = create<StudioState>()(
           const list = pageOverlays(page);
           const i = list.findIndex((o) => o.id === id);
           if (i <= 0) return;
-          commit({
+          commitAs("Send Backward", {
             pages: patchPage(get().pages, get().currentPageId, (p) => ({
               ...p,
               overlays: moveOverlay(list, id, i - 1),
@@ -1916,7 +1940,7 @@ export const useStudio = create<StudioState>()(
           const list = pageOverlays(get().currentPage()).map((o) =>
             o.id === id ? { ...o, behind: false } : o,
           );
-          commit({
+          commitAs("Bring to Front", {
             pages: patchPage(get().pages, get().currentPageId, (p) => ({
               ...p,
               overlays: moveOverlay(list, id, list.length),
@@ -1928,7 +1952,7 @@ export const useStudio = create<StudioState>()(
           const list = pageOverlays(get().currentPage()).map((o) =>
             o.id === id ? { ...o, behind: true } : o,
           );
-          commit({
+          commitAs("Send to Back", {
             pages: patchPage(get().pages, get().currentPageId, (p) => ({
               ...p,
               overlays: moveOverlay(list, id, 0),
@@ -1970,7 +1994,7 @@ export const useStudio = create<StudioState>()(
           overlay.x = 6;
           overlay.y = 3.2;
           overlay.color = "";
-          commit({
+          commitAs("Place Logo", {
             pages: patchPage(state.pages, state.currentPageId, (p) => ({
               ...p,
               overlays: [...pageOverlays(p), overlay],
@@ -2015,7 +2039,7 @@ export const useStudio = create<StudioState>()(
             ...prev,
             pages: clonePages(prev.pages),
             past: s.past.slice(0, -1),
-            future: [takeSnap(s), ...s.future].slice(0, HISTORY_MAX),
+            future: [{ ...takeSnap(s), label: prev.label }, ...s.future].slice(0, HISTORY_MAX),
             selectedPanelId: null,
             selectedOverlayId: null,
           });
@@ -2029,7 +2053,7 @@ export const useStudio = create<StudioState>()(
           set({
             ...next,
             pages: clonePages(next.pages),
-            past: [...s.past, takeSnap(s)].slice(-HISTORY_MAX),
+            past: [...s.past, { ...takeSnap(s), label: next.label }].slice(-HISTORY_MAX),
             future: s.future.slice(1),
             selectedPanelId: null,
             selectedOverlayId: null,
@@ -2139,20 +2163,20 @@ export const useStudio = create<StudioState>()(
             color: nextCastColor(s.cast),
             portrait,
           };
-          commit({ cast: [...s.cast, member] });
+          commitAs("Add Cast Member", { cast: [...s.cast, member] });
           return member;
         },
 
         renameCast: (id, name) => {
           const trimmed = name.trim();
           if (!trimmed) return;
-          commit({
+          commitAs("Rename Cast Member", {
             cast: get().cast.map((c) => (c.id === id ? { ...c, name: trimmed } : c)),
           });
         },
 
         setCastPortrait: (id, src) => {
-          commit({
+          commitAs("Cast Portrait", {
             cast: get().cast.map((c) =>
               c.id === id ? { ...c, portrait: src || undefined } : c,
             ),
@@ -2160,7 +2184,7 @@ export const useStudio = create<StudioState>()(
         },
 
         removeCast: (id) => {
-          commit({
+          commitAs("Remove Cast Member", {
             cast: get().cast.filter((c) => c.id !== id),
             script: get().script.map((l) =>
               l.speakerId === id ? { ...l, speakerId: null } : l,
@@ -2190,7 +2214,7 @@ export const useStudio = create<StudioState>()(
             pageId: partial?.pageId ?? s.currentPageId,
             overlayId: partial?.overlayId ?? null,
           };
-          commit({ script: [...s.script, line] });
+          commitAs("Add Line", { script: [...s.script, line] });
           return line;
         },
 
@@ -2234,7 +2258,7 @@ export const useStudio = create<StudioState>()(
               }),
             }));
           }
-          commit({
+          commitAs("Edit Script", {
             script: s.script.map((l) => (l.id === id ? next : l)),
             pages,
           });
@@ -2242,7 +2266,7 @@ export const useStudio = create<StudioState>()(
 
         removeScriptLine: (id) => {
           const line = get().script.find((l) => l.id === id);
-          commit({
+          commitAs("Delete Line", {
             script: get().script.filter((l) => l.id !== id),
             pages: line?.overlayId
               ? get().pages.map((page) => ({
@@ -2284,7 +2308,7 @@ export const useStudio = create<StudioState>()(
           }
           overlay.x = clamp(overlay.x, 0, 100 - overlay.w);
           overlay.y = clamp(overlay.y, 0, 100 - overlay.h);
-          commit({
+          commitAs("Place Line", {
             pages: patchPage(s.pages, s.currentPageId, (p) => ({
               ...p,
               overlays: [...pageOverlays(p), overlay],
@@ -2328,7 +2352,7 @@ export const useStudio = create<StudioState>()(
             return;
           }
           if (!isScriptKind(found.kind)) {
-            commit({
+            commitAs("Assign Speaker", {
               pages: s.pages.map((page) => ({
                 ...page,
                 overlays: pageOverlays(page).map((o) =>
@@ -2346,7 +2370,7 @@ export const useStudio = create<StudioState>()(
             pageId: s.currentPageId,
             overlayId: found.id,
           };
-          commit({
+          commitAs("Assign Speaker", {
             script: [...s.script, line],
             pages: s.pages.map((page) => ({
               ...page,
@@ -2362,7 +2386,7 @@ export const useStudio = create<StudioState>()(
         addSplashPage: (src) => {
           const page = makePage("splash", false);
           page.panels = [{ id: page.panels[0]!.id, image: freshImage(src) }];
-          commit({
+          commitAs("Add Splash Page", {
             pages: [...get().pages, page],
             currentPageId: page.id,
             selectedPanelId: page.panels[0]!.id,

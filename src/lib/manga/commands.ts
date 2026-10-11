@@ -153,7 +153,7 @@ export function buildCommands(ctx: CommandContext): Command[] {
   const edit: Command[] = [
     {
       id: "edit.undo",
-      label: "Undo",
+      label: s.past[s.past.length - 1]?.label ? `Undo ${s.past[s.past.length - 1]!.label}` : "Undo",
       group: "Edit",
       keys: k("Z", { cmd: true }),
       disabled: !s.past.length,
@@ -161,7 +161,7 @@ export function buildCommands(ctx: CommandContext): Command[] {
     },
     {
       id: "edit.redo",
-      label: "Redo",
+      label: s.future[0]?.label ? `Redo ${s.future[0].label}` : "Redo",
       group: "Edit",
       keys: k("Z", { cmd: true, shift: true }),
       disabled: !s.future.length,

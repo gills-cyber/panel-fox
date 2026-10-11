@@ -139,6 +139,8 @@ function AppMenuInner({
   const [open, setOpen] = useState<MenuId>(null);
   const past = useStudio((s) => s.past.length);
   const future = useStudio((s) => s.future.length);
+  const undoLabel = useStudio((s) => s.past[s.past.length - 1]?.label);
+  const redoLabel = useStudio((s) => s.future[0]?.label);
   const overlayId = useStudio((s) => s.selectedOverlayId);
   const page = useStudio((s) => s.currentPage());
   const overlays = pageOverlays(page);
@@ -267,13 +269,13 @@ function AppMenuInner({
         onMove={move}
       >
         <Item
-          label="Undo"
+          label={undoLabel ? `Undo ${undoLabel}` : "Undo"}
           keys={k("Z", { cmd: true })}
           disabled={!past}
           onClick={() => run(() => useStudio.getState().undo())}
         />
         <Item
-          label="Redo"
+          label={redoLabel ? `Redo ${redoLabel}` : "Redo"}
           keys={k("Z", { cmd: true, shift: true })}
           disabled={!future}
           onClick={() => run(() => useStudio.getState().redo())}

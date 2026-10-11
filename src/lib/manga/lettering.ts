@@ -1142,6 +1142,21 @@ export function stickerInk(id?: StickerId): string {
 	if (id === "blush" || id === "flower") return "#ec4899";
 	return "#161412";
 }
+/** The kind's name as the menus and the undo history show it. */
+export function overlayKindLabel(kind: OverlayKind): string {
+	if (kind === "speech") return "Speech";
+	if (kind === "thought") return "Thought";
+	if (kind === "narration") return "Narration";
+	if (kind === "title") return "Title";
+	if (kind === "sfx") return "Sound";
+	if (kind === "text") return "Text";
+	if (kind === "shout") return "Shout";
+	if (kind === "whisper") return "Whisper";
+	if (kind === "scream") return "Scream";
+	if (kind === "tone") return "Tone";
+	return "Sticker";
+}
+
 export function pageOverlays(page: { overlays?: Overlay[] }): Overlay[] {
 	return page.overlays ?? [];
 }

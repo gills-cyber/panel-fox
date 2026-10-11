@@ -252,6 +252,8 @@ export function Studio() {
     combo(key, m, apple);
   const canUndo = useStudio((s) => s.past.length > 0);
   const canRedo = useStudio((s) => s.future.length > 0);
+  const undoLabel = useStudio((s) => s.past[s.past.length - 1]?.label);
+  const redoLabel = useStudio((s) => s.future[0]?.label);
   const selectedCount = useStudio((s) => selectionIds(s).length);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   // "— Edited" after the name, like an NSDocument window: on while a change
@@ -1039,7 +1041,7 @@ export function Studio() {
           <ToolSep />
           <ToolGroup>
             <ToolTipBtn
-              label="Undo"
+              label={undoLabel ? `Undo ${undoLabel}` : "Undo"}
               keys={k("Z", { cmd: true })}
               koma="undo"
               disabled={!canUndo}
@@ -1048,7 +1050,7 @@ export function Studio() {
               <Undo2 />
             </ToolTipBtn>
             <ToolTipBtn
-              label="Redo"
+              label={redoLabel ? `Redo ${redoLabel}` : "Redo"}
               keys={k("Z", { cmd: true, shift: true })}
               koma="redo"
               disabled={!canRedo}
@@ -3270,7 +3272,7 @@ function OverlayEditor({ overlay }: { overlay: Overlay }) {
               true,
             )
           }
-          onValueCommit={() => useStudio.getState().endLiveEdit()}
+          onValueCommit={() => useStudio.getState().endLiveEdit(true, "Resize Type")}
         />
       </Field>
       {isDialogue(overlay.kind) ? (

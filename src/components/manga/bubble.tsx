@@ -264,7 +264,7 @@ function BubbleInner({
     });
   }
 
-  function flushDraft() {
+  function flushDraft(label?: string) {
     if (draftRaf.current) {
       cancelAnimationFrame(draftRaf.current);
       draftRaf.current = 0;
@@ -275,10 +275,10 @@ function BubbleInner({
     const studio = useStudio.getState();
     if (patch && Object.keys(patch).length) {
       studio.updateOverlay(overlay.id, patch, true);
-      studio.endLiveEdit();
+      studio.endLiveEdit(true, label);
     } else if (groupMoved.current) {
       // The group moved through the store; record it as one step.
-      studio.endLiveEdit();
+      studio.endLiveEdit(true, "Move");
     } else {
       studio.endLiveEdit(false);
     }
@@ -371,7 +371,7 @@ function BubbleInner({
     if (wheelQuiet.current != null) window.clearTimeout(wheelQuiet.current);
     wheelQuiet.current = window.setTimeout(() => {
       wheelQuiet.current = null;
-      flushDraft();
+      flushDraft("Resize Type");
       setLiveDrag(false);
     }, 220);
   }
@@ -670,7 +670,9 @@ function BubbleInner({
       if (drag.current.collapse && !drag.current.moved) {
         useStudio.getState().selectOverlay(overlay.id);
       }
-      flushDraft();
+      flushDraft(
+        mode === "move" ? "Move" : mode === "resize" ? "Resize" : mode === "tail" ? "Move Tail" : "Rotate",
+      );
       if (mode === "tail") {
         setHideBar(false);
         const studio = useStudio.getState();
@@ -688,7 +690,7 @@ function BubbleInner({
     }
     pointers.current.delete(e.pointerId);
     if (pointers.current.size < 2) {
-      if (pinch.current) flushDraft();
+      if (pinch.current) flushDraft("Resize");
       pinch.current = null;
     }
     cancelHold();
