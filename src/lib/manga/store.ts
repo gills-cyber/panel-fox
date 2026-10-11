@@ -324,6 +324,10 @@ type StudioState = {
   bleed: number;
   snapEdges: boolean;
   handInk: boolean;
+  /** Printer's marks on the live page (a view setting, not part of the document). */
+  showGuides: boolean;
+  /** Grid on the live page (a view setting, not part of the document). */
+  showGrid: boolean;
   snapGuides: SnapGuide[];
   spread: boolean;
   readMode: boolean;
@@ -389,6 +393,8 @@ type StudioState = {
   setBleed: (n: number) => void;
   setSnapEdges: (v: boolean) => void;
   setHandInk: (v: boolean) => void;
+  setShowGuides: (v: boolean) => void;
+  setShowGrid: (v: boolean) => void;
   setSnapGuides: (guides: SnapGuide[]) => void;
   setSpread: (v: boolean) => void;
   setReadMode: (v: boolean) => void;
@@ -528,6 +534,8 @@ export const useStudio = create<StudioState>()(
         bleed: typeof boot.bleed === "number" ? boot.bleed : 0,
         snapEdges: boot.snapEdges !== false,
         handInk: boot.handInk !== false,
+        showGuides: boot.showGuides === true,
+        showGrid: boot.showGrid === true,
         snapGuides: [],
         pendingEditOverlayId: null,
         spread: Boolean(boot.spread),
@@ -1050,6 +1058,8 @@ export const useStudio = create<StudioState>()(
         setSnapEdges: (snapEdges) => set({ snapEdges }),
         // Part of the document (saved, undoable): the look of the lettering travels with the work.
         setHandInk: (handInk) => commitAs("Hand-drawn Ink", { handInk }),
+        setShowGuides: (showGuides) => set({ showGuides }),
+        setShowGrid: (showGrid) => set({ showGrid }),
         setSnapGuides: (snapGuides) => {
           // Dragging calls this every pointer move; only re-render the page when the guides actually change.
           const cur = get().snapGuides;
@@ -2410,6 +2420,8 @@ export const useStudio = create<StudioState>()(
         bleed: s.bleed,
         snapEdges: s.snapEdges,
         handInk: s.handInk,
+        showGuides: s.showGuides,
+        showGrid: s.showGrid,
         spread: s.spread,
         theme: s.theme,
         rtl: s.rtl,
@@ -2459,6 +2471,8 @@ export const useStudio = create<StudioState>()(
         if (typeof prefs.spread === "boolean") next.spread = prefs.spread;
         if (typeof prefs.snapEdges === "boolean") next.snapEdges = prefs.snapEdges;
         if (typeof prefs.handInk === "boolean") next.handInk = prefs.handInk;
+        if (typeof prefs.showGuides === "boolean") next.showGuides = prefs.showGuides;
+        if (typeof prefs.showGrid === "boolean") next.showGrid = prefs.showGrid;
         return next;
       },
       onRehydrateStorage: () => (state) => {
@@ -2491,6 +2505,8 @@ if (typeof window !== "undefined") {
       spread: s.spread,
       snapEdges: s.snapEdges,
       handInk: s.handInk,
+      showGuides: s.showGuides,
+      showGrid: s.showGrid,
     });
   });
 }

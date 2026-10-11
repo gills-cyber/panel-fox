@@ -22,6 +22,7 @@ import type { PageState, PanelRect, ResizeHandle } from "@/lib/manga/types";
 import { PanelFrame } from "./panel-frame";
 import { Bubble, ChainLayer } from "./bubble";
 import { SnapGuides } from "./balloon-style";
+import { PageGrid, PrintGuides } from "./print-guides";
 import { toast } from "sonner";
 import { pageOverlays, chainGroups, isChainTail, isChained } from "@/lib/manga/lettering";
 import { cn } from "@/lib/utils";
@@ -59,6 +60,8 @@ export function MangaPage({
   const page = pageOverride ?? livePage;
   const paperSize = useStudio((s) => s.paperSize);
   const bleed = useStudio((s) => s.bleed);
+  const showGuides = useStudio((s) => s.showGuides);
+  const showGrid = useStudio((s) => s.showGrid);
   const snapEdges = useStudio((s) => s.snapEdges);
   const snapGuides = useStudio((s) => s.snapGuides);
   const spec = paperSpec(paperSize);
@@ -599,8 +602,9 @@ export function MangaPage({
               : undefined,
           aspectRatio: `${spec.w} / ${spec.h}`,
           cursor: placing ? "crosshair" : undefined,
+          // The print guides draw the bleed to scale; without them a band stands in for it.
           boxShadow:
-            bleed > 0
+            bleed > 0 && !(live && showGuides)
               ? `0 0 0 ${Math.max(4, bleed * 2.2)}px color-mix(in srgb, var(--color-bg) 55%, #8a8a8e)`
               : undefined,
         }}
@@ -917,6 +921,8 @@ export function MangaPage({
             zIndex={group.every((o) => o.behind) ? 25 : 79}
           />
         ))}
+        {live && showGrid ? <PageGrid spec={spec} /> : null}
+        {live && showGuides ? <PrintGuides spec={spec} margin={margin} bleed={bleed} /> : null}
         {live ? <SnapGuides guides={snapGuides} /> : null}
         {band ? (
           <div

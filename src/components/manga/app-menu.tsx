@@ -150,6 +150,8 @@ function AppMenuInner({
     : undefined;
   const snapEdges = useStudio((s) => s.snapEdges);
   const handInk = useStudio((s) => s.handInk);
+  const showGuides = useStudio((s) => s.showGuides);
+  const showGrid = useStudio((s) => s.showGrid);
   const hasOverlayClip = useStudio((s) => s.overlayClipboard !== null);
   const selectedCount = useStudio((s) => selectionIds(s).length);
   const canFlipTail = Boolean(
@@ -635,6 +637,28 @@ function AppMenuInner({
             run(() => {
               const s = useStudio.getState();
               s.setSnapEdges(!s.snapEdges);
+            })
+          }
+        />
+        <Item
+          label="Print Guides"
+          keys={k("G", { cmd: true, alt: true })}
+          checked={showGuides}
+          onClick={() =>
+            run(() => {
+              const s = useStudio.getState();
+              s.setShowGuides(!s.showGuides);
+            })
+          }
+        />
+        <Item
+          label="Grid"
+          keys={k("L", { cmd: true, alt: true })}
+          checked={showGrid}
+          onClick={() =>
+            run(() => {
+              const s = useStudio.getState();
+              s.setShowGrid(!s.showGrid);
             })
           }
         />

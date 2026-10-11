@@ -109,7 +109,8 @@ import {
 } from "@/lib/manga/clinic-icons";
 import type { Overlay, OverlayKind, PaperTone, PanelImage, StickerId } from "@/lib/manga/types";
 import { IMAGE_ZOOM_MAX, IMAGE_ZOOM_MIN, fileToLogoSrc } from "@/lib/manga/image";
-import { PAPER_SIZES } from "@/lib/manga/paper";
+import { PAPER_SIZES, paperSpec } from "@/lib/manga/paper";
+import { pageUnit } from "@/components/manga/print-guides";
 import { selectionIds, useCurrentPage, useStudio, type AlignMode } from "@/lib/manga/store";
 import { cn, clamp, prefersReducedMotion } from "@/lib/utils";
 import {
@@ -472,6 +473,18 @@ export function Studio() {
         if (e.code === "KeyJ") {
           e.preventDefault();
           setTab("document");
+          return;
+        }
+        if (e.code === "KeyG") {
+          e.preventDefault();
+          const s = useStudio.getState();
+          s.setShowGuides(!s.showGuides);
+          return;
+        }
+        if (e.code === "KeyL") {
+          e.preventDefault();
+          const s = useStudio.getState();
+          s.setShowGrid(!s.showGrid);
           return;
         }
       }
@@ -2519,8 +2532,17 @@ function Inspector({
   const logos = useStudio((s) => s.customStickers);
   const snapEdges = useStudio((s) => s.snapEdges);
   const handInk = useStudio((s) => s.handInk);
+  const showGuides = useStudio((s) => s.showGuides);
+  const showGrid = useStudio((s) => s.showGrid);
+  const bleed = useStudio((s) => s.bleed);
   const spreadOn = useStudio((s) => s.spread);
   const paperSize = useStudio((s) => s.paperSize);
+  const sheet = paperSpec(paperSize);
+  const bleedUnit = pageUnit(sheet);
+  // Bleed is kept as a percent of the page width; the slider speaks the page's own units.
+  const bleedUnits = (bleed / 100) * sheet.w;
+  const bleedMax = bleedUnit === "mm" ? 5 : 40;
+  const bleedStep = bleedUnit === "mm" ? 0.5 : 5;
 
   function uploadLogo() {
     const input = document.querySelector<HTMLInputElement>("[data-koma='logo-file']");
@@ -2775,6 +2797,24 @@ function Inspector({
               }
             />
           </Field>
+          <Field
+            label="Bleed"
+            value={
+              bleedUnits > 0
+                ? `${bleedUnit === "mm" ? bleedUnits.toFixed(1) : Math.round(bleedUnits)} ${bleedUnit}`
+                : "None"
+            }
+          >
+            <Slider
+              min={0}
+              max={bleedMax}
+              step={bleedStep}
+              value={[Math.min(bleedMax, Math.round(bleedUnits / bleedStep) * bleedStep)]}
+              onValueChange={([v]) =>
+                useStudio.getState().setBleed(((v ?? 0) / sheet.w) * 100)
+              }
+            />
+          </Field>
           <div>
             <p className="mb-2 text-[11px] font-medium text-muted">Page size</p>
             <div className="flex flex-wrap gap-1">
@@ -2826,6 +2866,18 @@ function Inspector({
             koma="view-hand-ink"
             checked={handInk}
             onChange={(v) => useStudio.getState().setHandInk(v)}
+          />
+          <CheckRow
+            label="Print guides"
+            koma="view-guides"
+            checked={showGuides}
+            onChange={(v) => useStudio.getState().setShowGuides(v)}
+          />
+          <CheckRow
+            label="Grid"
+            koma="view-grid"
+            checked={showGrid}
+            onChange={(v) => useStudio.getState().setShowGrid(v)}
           />
           <CheckRow
             label="Two-page spread"

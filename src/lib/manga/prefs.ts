@@ -18,6 +18,10 @@ export type StudioPrefs = {
   snapEdges: boolean;
   /** Hand-drawn (G-pen) balloon ink on screen and in export; false draws clean geometric lines. */
   handInk: boolean;
+  /** Printer's marks on the live page: trim, safe area, bleed, crop marks. */
+  showGuides?: boolean;
+  /** A 10 mm grid on the live page. */
+  showGrid?: boolean;
   thumbs: boolean;
   updatedAt?: number;
   exportFormat?: "png" | "jpeg" | "pdf" | "cbz" | "strip" | "canvas";

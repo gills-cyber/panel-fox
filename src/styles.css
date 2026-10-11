@@ -1071,6 +1071,63 @@ img {
   opacity: 0.35;
 }
 
+/* Print guides and grid: a view layer on the live page; never catches the pointer. */
+.koma-grid {
+  --guide-minor: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  --guide-major: color-mix(in srgb, var(--color-accent) 34%, transparent);
+  background-image:
+    linear-gradient(to right, var(--guide-major) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--guide-major) 1px, transparent 1px),
+    linear-gradient(to right, var(--guide-minor) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--guide-minor) 1px, transparent 1px);
+  background-size:
+    var(--grid-major-x) 100%,
+    100% var(--grid-major-y),
+    var(--grid-x) 100%,
+    100% var(--grid-y);
+  animation: koma-fade-in var(--motion-quick) var(--ease-out) both;
+}
+.koma-guides {
+  --guide-ink: color-mix(in srgb, var(--color-ink) 70%, transparent);
+  --guide-safe: var(--color-accent);
+  --guide-bleed: #ff3b30;
+  animation: koma-fade-in var(--motion-quick) var(--ease-out) both;
+}
+.koma-guide {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+}
+.koma-guide-trim {
+  border: 1px solid var(--guide-ink);
+}
+.koma-guide-safe {
+  border: 1px dashed var(--guide-safe);
+  opacity: 0.85;
+}
+.koma-guide-bleed {
+  border: 1px dashed var(--guide-bleed);
+  opacity: 0.8;
+}
+.koma-bleed-strip {
+  position: absolute;
+  background: color-mix(in srgb, #ff3b30 10%, transparent);
+}
+.koma-crop {
+  position: absolute;
+  background: var(--guide-ink);
+}
+.koma-guide-legend {
+  position: absolute;
+  left: 5px; /* clear of the corner crop mark */
+  white-space: nowrap;
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .koma-snap-guide {
   position: absolute;
   background: var(--color-accent);

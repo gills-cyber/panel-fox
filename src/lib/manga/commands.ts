@@ -432,6 +432,30 @@ export function buildCommands(ctx: CommandContext): Command[] {
       },
     },
     {
+      id: "view.guides",
+      label: "Print Guides",
+      group: "View",
+      keys: k("G", { cmd: true, alt: true }),
+      keywords: ["trim", "bleed", "safe area", "crop marks", "margins"],
+      checked: s.showGuides,
+      run: () => {
+        const st = useStudio.getState();
+        st.setShowGuides(!st.showGuides);
+      },
+    },
+    {
+      id: "view.grid",
+      label: "Grid",
+      group: "View",
+      keys: k("L", { cmd: true, alt: true }),
+      keywords: ["rules", "lines", "graph", "layout"],
+      checked: s.showGrid,
+      run: () => {
+        const st = useStudio.getState();
+        st.setShowGrid(!st.showGrid);
+      },
+    },
+    {
       id: "view.handInk",
       label: "Hand-drawn Balloons",
       group: "View",
