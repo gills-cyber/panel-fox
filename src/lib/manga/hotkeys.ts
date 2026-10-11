@@ -205,6 +205,11 @@ export function handleStudioHotkey(e: KeyboardEvent) {
     studio.redo();
     return true;
   }
+  if (mod && !e.altKey && !e.shiftKey && key.toLowerCase() === "a") {
+    e.preventDefault();
+    studio.selectAllOverlays();
+    return true;
+  }
   if (mod && key.toLowerCase() === "c" && e.altKey) {
     e.preventDefault();
     studio.copyOverlayStyle();

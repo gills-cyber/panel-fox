@@ -21,7 +21,7 @@ import { BalloonStylePicker } from "@/components/manga/balloon-style";
 import { BalloonPaintControls } from "@/components/manga/balloon-paint";
 import { overlayFontCss, titleUsesOutline } from "@/lib/manga/fonts";
 import { FontFamilyControl } from "@/components/manga/font-family";
-import { useStudio } from "@/lib/manga/store";
+import { selectionIds, useStudio } from "@/lib/manga/store";
 import { fitLetterBox, letterMinBox } from "@/lib/manga/fit";
 import { inkBody, inkPuff, inkSeed, inkTail, type InkBox } from "@/lib/manga/ink";
 import { pageAspect } from "@/lib/manga/paper";
@@ -141,6 +141,7 @@ function useTailMotion(tailX: number, tailY: number, live: boolean) {
 function BubbleInner({
   overlay,
   selected,
+  inSelection = false,
   pageEl,
   ignorePointer = false,
   zIndex = 30,
@@ -149,6 +150,8 @@ function BubbleInner({
 }: {
   overlay: Overlay;
   selected: boolean;
+  /** Part of a multi-selection without being its primary balloon. */
+  inSelection?: boolean;
   pageEl: HTMLDivElement | null;
   ignorePointer?: boolean;
   zIndex?: number;
@@ -185,7 +188,12 @@ function BubbleInner({
     handle?: ResizeHandle;
     pointerId: number;
     moved: boolean;
+    /** The other selected balloons, where they started: they move along. */
+    group: { id: string; x: number; y: number }[];
+    /** A plain click on a member of a multi-selection collapses it to that balloon. */
+    collapse: boolean;
   } | null>(null);
+  const groupMoved = useRef(false);
   const overlayRef = useRef(overlay);
   overlayRef.current = overlay;
   const liveDragRef = useRef(liveDrag);
@@ -268,9 +276,13 @@ function BubbleInner({
     if (patch && Object.keys(patch).length) {
       studio.updateOverlay(overlay.id, patch, true);
       studio.endLiveEdit();
+    } else if (groupMoved.current) {
+      // The group moved through the store; record it as one step.
+      studio.endLiveEdit();
     } else {
       studio.endLiveEdit(false);
     }
+    groupMoved.current = false;
   }
 
   useEffect(() => {
@@ -331,7 +343,11 @@ function BubbleInner({
   }
 
   function remove() {
-    useStudio.getState().removeOverlay(overlay.id);
+    const studio = useStudio.getState();
+    const ids = selectionIds(studio);
+    // Deleting one balloon of a multi-selection deletes the selection.
+    if (ids.length > 1 && ids.includes(overlay.id)) studio.removeOverlays(ids);
+    else studio.removeOverlay(overlay.id);
     setMenu(null);
   }
 
@@ -394,7 +410,24 @@ function BubbleInner({
     if (e.button !== 0) return;
     e.stopPropagation();
     if (mode !== "move") e.preventDefault();
-    useStudio.getState().selectOverlay(overlay.id);
+    const studio = useStudio.getState();
+    const before = selectionIds(studio);
+    const additive = mode === "move" && (e.shiftKey || e.metaKey);
+    let collapse = false;
+    // A ⇧-click would extend the document's text selection across the page,
+    // and dragging selected text starts a native drag that cancels ours.
+    if (additive) e.preventDefault();
+    window.getSelection()?.removeAllRanges();
+    if (additive) {
+      // ⇧-click adds the balloon to the selection, or takes it out again;
+      // a balloon taken out is not dragged.
+      studio.toggleOverlaySelection(overlay.id);
+      if (!selectionIds(useStudio.getState()).includes(overlay.id)) return;
+    } else if (!before.includes(overlay.id) || mode !== "move") {
+      studio.selectOverlay(overlay.id);
+    } else {
+      collapse = before.length > 1;
+    }
     if (overlay.locked && mode !== "move") return;
     if (overlay.locked) {
       cancelHold();
@@ -434,6 +467,13 @@ function BubbleInner({
       }, 520);
     }
     if (mode === "tail") setHideBar(true);
+    const members = mode === "move" ? selectionIds(useStudio.getState()) : [];
+    const group =
+      members.length > 1
+        ? pageOverlays(useStudio.getState().currentPage())
+            .filter((o) => o.id !== overlay.id && members.includes(o.id) && !o.locked)
+            .map((o) => ({ id: o.id, x: o.x, y: o.y }))
+        : [];
     drag.current = {
       x: e.clientX,
       y: e.clientY,
@@ -442,6 +482,8 @@ function BubbleInner({
       handle,
       pointerId: e.pointerId,
       moved: false,
+      group,
+      collapse,
     };
     try {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -525,13 +567,31 @@ function BubbleInner({
       const next = moveOverlay(d.start, dx, dy);
       const studio = useStudio.getState();
       const precision = e.altKey || e.metaKey || e.ctrlKey;
+      // A multi-selection moves as one through the store: the dragged
+      // balloon snaps, and the others follow by the same distance.
+      const applyMove = (to: { x: number; y: number }) => {
+        if (!d.group.length) {
+          applyDraft(to);
+          return;
+        }
+        const ddx = to.x - d.start.x;
+        const ddy = to.y - d.start.y;
+        groupMoved.current = true;
+        studio.moveOverlays(
+          [
+            { id: overlay.id, x: to.x, y: to.y },
+            ...d.group.map((g) => ({ id: g.id, x: g.x + ddx, y: g.y + ddy })),
+          ],
+          true,
+        );
+      };
       if (!studio.snapEdges || precision) {
         studio.setSnapGuides([]);
-        applyDraft(next);
+        applyMove(next);
       } else {
         const page = studio.currentPage();
         const others = pageOverlays(page)
-          .filter((o) => o.id !== overlay.id && !o.hidden)
+          .filter((o) => o.id !== overlay.id && !o.hidden && !d.group.some((g) => g.id === o.id))
           .map((o) => ({ id: o.id, x: o.x, y: o.y, w: o.w, h: o.h }));
         const boxes = boxesForPage(page, studio.margin, studio.gutter, studio.rtl);
         const extras = extraSnapLines(studio.margin, boxes, studio.gutter);
@@ -539,7 +599,7 @@ function BubbleInner({
         extras.y.push(...boxes.map((b) => b.y), ...boxes.map((b) => b.y + b.h), ...boxes.map((b) => b.y + b.h / 2));
         const snapped = snapMove({ ...d.start, ...next }, others, extras);
         studio.setSnapGuides(snapped.guides);
-        applyDraft({ x: snapped.x, y: snapped.y });
+        applyMove({ x: snapped.x, y: snapped.y });
       }
     } else if (d.mode === "resize" && d.handle) {
       let next = resizeOverlay(d.start, d.handle, dx, dy);
@@ -607,6 +667,9 @@ function BubbleInner({
   function onPointerUp(e: React.PointerEvent) {
     if (drag.current?.pointerId === e.pointerId) {
       const mode = drag.current.mode;
+      if (drag.current.collapse && !drag.current.moved) {
+        useStudio.getState().selectOverlay(overlay.id);
+      }
       flushDraft();
       if (mode === "tail") {
         setHideBar(false);
@@ -718,7 +781,11 @@ function BubbleInner({
         width: `${o.w}%`,
         height: `${o.h}%`,
         zIndex: selected ? 120 : zIndex,
-        outline: selected ? "2px solid var(--color-accent)" : "none",
+        outline: selected
+          ? "2px solid var(--color-accent)"
+          : inSelection
+            ? "1.5px solid color-mix(in srgb, var(--color-accent) 70%, transparent)"
+            : "none",
         outlineOffset: 3,
         ["--type-pt" as string]: String(o.fontSize),
         ["--type-ref" as string]: String(refH),

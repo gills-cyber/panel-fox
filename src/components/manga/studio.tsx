@@ -44,6 +44,14 @@ import {
   BookOpen,
   Undo2,
   Redo2,
+  AlignStartVertical,
+  AlignCenterVertical,
+  AlignEndVertical,
+  AlignStartHorizontal,
+  AlignCenterHorizontal,
+  AlignEndHorizontal,
+  AlignHorizontalDistributeCenter,
+  AlignVerticalDistributeCenter,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -102,7 +110,7 @@ import {
 import type { Overlay, OverlayKind, PaperTone, PanelImage, StickerId } from "@/lib/manga/types";
 import { IMAGE_ZOOM_MAX, IMAGE_ZOOM_MIN, fileToLogoSrc } from "@/lib/manga/image";
 import { PAPER_SIZES } from "@/lib/manga/paper";
-import { useCurrentPage, useStudio } from "@/lib/manga/store";
+import { selectionIds, useCurrentPage, useStudio, type AlignMode } from "@/lib/manga/store";
 import { cn, clamp, prefersReducedMotion } from "@/lib/utils";
 import {
   imageFilesFrom,
@@ -244,6 +252,7 @@ export function Studio() {
     combo(key, m, apple);
   const canUndo = useStudio((s) => s.past.length > 0);
   const canRedo = useStudio((s) => s.future.length > 0);
+  const selectedCount = useStudio((s) => selectionIds(s).length);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   // "— Edited" after the name, like an NSDocument window: on while a change
   // waits for autosave, then it lingers a moment after the save and fades.
@@ -1580,7 +1589,9 @@ export function Studio() {
                 ? "Document"
                 : tab === "script"
                   ? "Script"
-                  : selectedOverlay
+                  : selectedOverlay && selectedCount > 1
+                    ? `${selectedCount} balloons`
+                    : selectedOverlay
                     ? overlayLabel(selectedOverlay.kind)
                     : selected?.image
                       ? "Image"
@@ -1589,6 +1600,7 @@ export function Studio() {
                         : "Format"}
               {tab === "format" &&
               selectedOverlay &&
+              selectedCount < 2 &&
               selectedOverlay.kind !== "sticker" ? (
                 <span className="ml-1.5 text-[11px] font-normal text-muted">
                   {isDialogue(selectedOverlay.kind) || selectedOverlay.kind === "narration"
@@ -2528,7 +2540,10 @@ function Inspector({
             </label>
           </Button>
           {overlay ? (
-            <OverlayEditor overlay={overlay} />
+            <>
+              <AlignStrip />
+              <OverlayEditor overlay={overlay} />
+            </>
           ) : selected && image ? (
             <>
               <p className="text-[11px] font-medium text-muted">Edit</p>
@@ -2994,6 +3009,69 @@ function InsertFold({
         >
           <div className="pb-1 pt-1">{children}</div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Keynote's Arrange strip: align the selection, or one balloon to the page. */
+function AlignStrip() {
+  const count = useStudio((s) => selectionIds(s).length);
+  const aligns: { mode: AlignMode; label: string; icon: ReactNode }[] = [
+    { mode: "left", label: "Align Left", icon: <AlignStartVertical /> },
+    { mode: "centerX", label: "Align Center", icon: <AlignCenterVertical /> },
+    { mode: "right", label: "Align Right", icon: <AlignEndVertical /> },
+    { mode: "top", label: "Align Top", icon: <AlignStartHorizontal /> },
+    { mode: "centerY", label: "Align Middle", icon: <AlignCenterHorizontal /> },
+    { mode: "bottom", label: "Align Bottom", icon: <AlignEndHorizontal /> },
+  ];
+  return (
+    <div data-koma="align-strip">
+      <p className="mb-1.5 text-[11px] font-medium text-muted">
+        {count > 1 ? `Align ${count} balloons` : "Align to page"}
+      </p>
+      <div className="flex items-center gap-0.5">
+        {aligns.map((a) => (
+          <Tooltip key={a.mode}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={a.label}
+                data-koma-align={a.mode}
+                onClick={() => useStudio.getState().alignSelection(a.mode)}
+                className="koma-icon-btn"
+              >
+                {a.icon}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{a.label}</TooltipContent>
+          </Tooltip>
+        ))}
+        <span className="mx-1 h-4 w-px bg-line" aria-hidden />
+        {(
+          [
+            { axis: "x", label: "Distribute Horizontally", icon: <AlignHorizontalDistributeCenter /> },
+            { axis: "y", label: "Distribute Vertically", icon: <AlignVerticalDistributeCenter /> },
+          ] as const
+        ).map((d) => (
+          <Tooltip key={d.axis}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={d.label}
+                data-koma-distribute={d.axis}
+                disabled={count < 3}
+                onClick={() => useStudio.getState().distributeSelection(d.axis)}
+                className="koma-icon-btn"
+              >
+                {d.icon}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {count < 3 ? `${d.label} (select three or more)` : d.label}
+            </TooltipContent>
+          </Tooltip>
+        ))}
       </div>
     </div>
   );

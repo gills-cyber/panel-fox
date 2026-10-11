@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { boxesForPage } from "@/lib/manga/templates";
-import { useCurrentPage, useStudio } from "@/lib/manga/store";
+import { selectionIds, useCurrentPage, useStudio } from "@/lib/manga/store";
 import {
   applyResize,
   applyRailMove,
@@ -25,6 +25,8 @@ import { SnapGuides } from "./balloon-style";
 import { toast } from "sonner";
 import { pageOverlays, chainGroups, isChainTail, isChained } from "@/lib/manga/lettering";
 import { cn } from "@/lib/utils";
+
+const NO_IDS: string[] = [];
 import {
   incomingFilesFrom,
   isFileDrag,
@@ -69,6 +71,14 @@ export function MangaPage({
   const showNumbers = useStudio((s) => s.showNumbers);
   const selectedPanelId = useStudio((s) => (live ? s.selectedPanelId : null));
   const selectedOverlayId = useStudio((s) => (live ? s.selectedOverlayId : null));
+  const selectedOverlayIds = useStudio((s) => (live ? s.selectedOverlayIds : NO_IDS));
+  const selectedIds = useMemo(
+    () => selectionIds({ selectedOverlayId, selectedOverlayIds }),
+    [selectedOverlayId, selectedOverlayIds],
+  );
+  // ⇧-drag on the page draws a rubber band that selects the balloons it crosses.
+  const [band, setBand] = useState<PanelRect | null>(null);
+  const bandRef = useRef<{ x0: number; y0: number; pointerId: number } | null>(null);
   const editingPanelId = useStudio((s) => s.editingPanelId);
   const pendingSrc = useStudio((s) => s.pendingSrc);
   const pendingBackground = useStudio((s) => s.pendingBackground);
@@ -595,8 +605,22 @@ export function MangaPage({
               : undefined,
         }}
         onPointerDownCapture={(e) => {
-          if (readOnly || !placing || e.button !== 0) return;
+          if (readOnly || e.button !== 0) return;
           if ((e.target as HTMLElement).closest("[data-overlay-id]")) return;
+          if (e.shiftKey && !placing) {
+            e.preventDefault();
+            e.stopPropagation();
+            const p = pagePctFromEvent(e.clientX, e.clientY);
+            bandRef.current = { x0: p.x, y0: p.y, pointerId: e.pointerId };
+            setBand({ x: p.x, y: p.y, w: 0, h: 0 });
+            try {
+              pageRef.current?.setPointerCapture(e.pointerId);
+            } catch {
+              /* ignore */
+            }
+            return;
+          }
+          if (!placing) return;
           e.preventDefault();
           e.stopPropagation();
           startPlace(e);
@@ -621,12 +645,49 @@ export function MangaPage({
           }, 520);
         }}
         onPointerMove={(e) => {
+          const b = bandRef.current;
+          if (b && b.pointerId === e.pointerId) {
+            const p = pagePctFromEvent(e.clientX, e.clientY);
+            setBand({
+              x: Math.min(b.x0, p.x),
+              y: Math.min(b.y0, p.y),
+              w: Math.abs(p.x - b.x0),
+              h: Math.abs(p.y - b.y0),
+            });
+            return;
+          }
           if (place.current) movePlace(e);
         }}
         onPointerUp={(e) => {
+          const b = bandRef.current;
+          if (b && b.pointerId === e.pointerId) {
+            bandRef.current = null;
+            const r = band;
+            setBand(null);
+            if (r && (r.w > 0.5 || r.h > 0.5)) {
+              const hit = pageOverlays(page)
+                .filter(
+                  (o) =>
+                    !o.hidden &&
+                    o.x < r.x + r.w &&
+                    o.x + o.w > r.x &&
+                    o.y < r.y + r.h &&
+                    o.y + o.h > r.y,
+                )
+                .map((o) => o.id);
+              if (hit.length) useStudio.getState().selectOverlays(hit);
+              else selectOverlay(null);
+            }
+            return;
+          }
           if (place.current) endPlace(e);
         }}
         onPointerCancel={(e) => {
+          if (bandRef.current?.pointerId === e.pointerId) {
+            bandRef.current = null;
+            setBand(null);
+            return;
+          }
           if (place.current) endPlace(e);
         }}
         onContextMenu={(e) => {
@@ -857,6 +918,13 @@ export function MangaPage({
           />
         ))}
         {live ? <SnapGuides guides={snapGuides} /> : null}
+        {band ? (
+          <div
+            className="koma-marquee pointer-events-none absolute z-[130]"
+            data-koma="marquee"
+            style={{ left: `${band.x}%`, top: `${band.y}%`, width: `${band.w}%`, height: `${band.h}%` }}
+          />
+        ) : null}
         {pageOverlays(page)
           .filter((o) => !o.hidden || selectedOverlayId === o.id)
           .map((overlay, i) => (
@@ -864,6 +932,7 @@ export function MangaPage({
             key={overlay.id}
             overlay={overlay}
             selected={selectedOverlayId === overlay.id}
+            inSelection={selectedIds.length > 1 && selectedIds.includes(overlay.id)}
             pageEl={pageEl}
             ignorePointer={fileDrag || arranging || moving || placing || readOnly}
             zIndex={overlay.behind ? 25 : 80 + i}

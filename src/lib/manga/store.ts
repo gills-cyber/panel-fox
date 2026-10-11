@@ -55,6 +55,37 @@ const DEFAULT_TEMPLATE = "six";
 const HISTORY_GAP = 480;
 const HISTORY_MAX = 40;
 
+export type AlignMode = "left" | "centerX" | "right" | "top" | "centerY" | "bottom";
+
+/** The balloons a command acts on: the whole multi-selection, else the one selected. */
+export function selectionIds(s: {
+  selectedOverlayId: string | null;
+  selectedOverlayIds: string[];
+}): string[] {
+  const primary = s.selectedOverlayId;
+  if (!primary) return [];
+  return s.selectedOverlayIds.includes(primary) ? s.selectedOverlayIds : [primary];
+}
+
+/** Formatting that a change to one selected balloon applies to all of them. */
+const FANOUT_KEYS = new Set<keyof Overlay>([
+  "fontSize",
+  "bold",
+  "italic",
+  "color",
+  "fill",
+  "stroke",
+  "balloonStyle",
+  "vertical",
+  "opacity",
+  "fontId",
+  "align",
+  "tone",
+  "hidden",
+  "locked",
+  "behind",
+]);
+
 function makePage(templateId: string, fill = false, id?: string): PageState {
   const spec = getTemplate(templateId);
   const ids = panelIds(spec);
@@ -271,6 +302,12 @@ type StudioState = {
   currentPageId: string;
   selectedPanelId: string | null;
   selectedOverlayId: string | null;
+  /**
+   * Every balloon in the selection when more than one is selected; the
+   * primary (`selectedOverlayId`) is one of them. Read it through
+   * `selectionIds`, which ignores a stale list.
+   */
+  selectedOverlayIds: string[];
   editingPanelId: string | null;
   pendingSrc: string | null;
   pendingBackground: string | null;
@@ -308,6 +345,15 @@ type StudioState = {
   currentPage: () => PageState;
   selectPanel: (id: string | null) => void;
   selectOverlay: (id: string | null) => void;
+  /** ⇧-click: add a balloon to the selection, or take it out again. */
+  toggleOverlaySelection: (id: string) => void;
+  selectOverlays: (ids: string[], primary?: string | null) => void;
+  selectAllOverlays: () => void;
+  /** Move several balloons at once; `live` while a drag is under way. */
+  moveOverlays: (moves: { id: string; x: number; y: number }[], live?: boolean) => void;
+  removeOverlays: (ids: string[]) => void;
+  alignSelection: (mode: AlignMode) => void;
+  distributeSelection: (axis: "x" | "y") => void;
   editPanel: (id: string | null) => void;
   setPendingSrc: (src: string | null) => void;
   setPendingBackground: (src: string | null) => void;
@@ -452,6 +498,7 @@ export const useStudio = create<StudioState>()(
         currentPageId: first.id,
         selectedPanelId: null,
         selectedOverlayId: null,
+        selectedOverlayIds: [],
         editingPanelId: null,
         pendingSrc: null,
         pendingBackground: null,
@@ -514,7 +561,142 @@ export const useStudio = create<StudioState>()(
             editingPanelId: id && id === s.editingPanelId ? id : null,
           })),
         selectOverlay: (id) =>
-          set({ selectedOverlayId: id, selectedPanelId: null, editingPanelId: null }),
+          set({
+            selectedOverlayId: id,
+            selectedOverlayIds: id ? [id] : [],
+            selectedPanelId: null,
+            editingPanelId: null,
+          }),
+        toggleOverlaySelection: (id) => {
+          const s = get();
+          const ids = selectionIds(s);
+          if (ids.includes(id)) {
+            const rest = ids.filter((x) => x !== id);
+            set({
+              selectedOverlayId: rest[rest.length - 1] ?? null,
+              selectedOverlayIds: rest,
+              selectedPanelId: null,
+              editingPanelId: null,
+            });
+            return;
+          }
+          set({
+            selectedOverlayId: id,
+            selectedOverlayIds: [...ids, id],
+            selectedPanelId: null,
+            editingPanelId: null,
+          });
+        },
+        selectOverlays: (ids, primary) => {
+          const onPage = new Set(pageOverlays(get().currentPage()).map((o) => o.id));
+          const list = [...new Set(ids)].filter((id) => onPage.has(id));
+          const head =
+            primary && list.includes(primary) ? primary : (list[list.length - 1] ?? null);
+          set({
+            selectedOverlayId: head,
+            selectedOverlayIds: list,
+            selectedPanelId: null,
+            editingPanelId: null,
+          });
+        },
+        selectAllOverlays: () => {
+          const ids = pageOverlays(get().currentPage())
+            .filter((o) => !o.hidden)
+            .map((o) => o.id);
+          get().selectOverlays(ids);
+        },
+        moveOverlays: (moves, live = false) => {
+          const s = get();
+          const at = new Map(moves.map((m) => [m.id, m]));
+          const pages = patchPage(s.pages, s.currentPageId, (page) => ({
+            ...page,
+            overlays: pageOverlays(page).map((o) => {
+              const m = at.get(o.id);
+              if (!m || o.locked) return o;
+              return { ...o, x: clamp(m.x, 0, 100 - o.w), y: clamp(m.y, 0, 100 - o.h) };
+            }),
+          }));
+          if (live) {
+            get().beginLiveEdit();
+            set({ pages });
+            return;
+          }
+          commit({ pages });
+        },
+        removeOverlays: (ids) => {
+          const gone = new Set(ids);
+          const s = get();
+          commit({
+            pages: patchPage(s.pages, s.currentPageId, (page) => ({
+              ...page,
+              overlays: pageOverlays(page).filter((o) => !gone.has(o.id)),
+            })),
+            script: s.script.map((l) =>
+              l.overlayId && gone.has(l.overlayId) ? { ...l, overlayId: null } : l,
+            ),
+            selectedOverlayId:
+              s.selectedOverlayId && gone.has(s.selectedOverlayId) ? null : s.selectedOverlayId,
+            selectedOverlayIds: s.selectedOverlayIds.filter((id) => !gone.has(id)),
+          });
+        },
+        alignSelection: (mode) => {
+          const s = get();
+          const ids = new Set(selectionIds(s));
+          const list = pageOverlays(s.currentPage()).filter((o) => ids.has(o.id) && !o.locked);
+          if (!list.length) return;
+          // One balloon aligns to the page; several align to their own bounds.
+          const box =
+            list.length === 1
+              ? { x: 0, y: 0, w: 100, h: 100 }
+              : {
+                  x: Math.min(...list.map((o) => o.x)),
+                  y: Math.min(...list.map((o) => o.y)),
+                  w: Math.max(...list.map((o) => o.x + o.w)) - Math.min(...list.map((o) => o.x)),
+                  h: Math.max(...list.map((o) => o.y + o.h)) - Math.min(...list.map((o) => o.y)),
+                };
+          const moves = list.map((o) => ({
+            id: o.id,
+            x:
+              mode === "left"
+                ? box.x
+                : mode === "centerX"
+                  ? box.x + box.w / 2 - o.w / 2
+                  : mode === "right"
+                    ? box.x + box.w - o.w
+                    : o.x,
+            y:
+              mode === "top"
+                ? box.y
+                : mode === "centerY"
+                  ? box.y + box.h / 2 - o.h / 2
+                  : mode === "bottom"
+                    ? box.y + box.h - o.h
+                    : o.y,
+          }));
+          get().moveOverlays(moves);
+        },
+        distributeSelection: (axis) => {
+          const s = get();
+          const ids = new Set(selectionIds(s));
+          const list = pageOverlays(s.currentPage())
+            .filter((o) => ids.has(o.id) && !o.locked)
+            .sort((a, b) => (axis === "x" ? a.x - b.x : a.y - b.y));
+          if (list.length < 3) return;
+          // Equal gaps between the boxes, the first and last staying put.
+          const first = list[0]!;
+          const last = list[list.length - 1]!;
+          const span =
+            axis === "x" ? last.x + last.w - first.x : last.y + last.h - first.y;
+          const sizes = list.reduce((sum, o) => sum + (axis === "x" ? o.w : o.h), 0);
+          const gap = (span - sizes) / (list.length - 1);
+          let at = axis === "x" ? first.x : first.y;
+          const moves = list.map((o) => {
+            const m = { id: o.id, x: axis === "x" ? at : o.x, y: axis === "y" ? at : o.y };
+            at += (axis === "x" ? o.w : o.h) + gap;
+            return m;
+          });
+          get().moveOverlays(moves);
+        },
         editPanel: (id) =>
           set({
             selectedPanelId: id,
@@ -1447,7 +1629,8 @@ export const useStudio = create<StudioState>()(
 
         updateOverlay: (id, patch, live = false) => {
           const s = get();
-          const current = pageOverlays(s.currentPage()).find((x) => x.id === id);
+          const onPage = pageOverlays(s.currentPage());
+          const current = onPage.find((x) => x.id === id);
           if (!current) return;
           const keys = Object.keys(patch) as (keyof Overlay)[];
           if (
@@ -1456,42 +1639,49 @@ export const useStudio = create<StudioState>()(
           ) {
             return;
           }
+          // Formatting one balloon of a multi-selection formats them all.
+          const selected = selectionIds(s);
+          const targets =
+            selected.length > 1 && selected.includes(id) && keys.every((k) => FANOUT_KEYS.has(k))
+              ? new Set(selected)
+              : new Set([id]);
           let script = s.script;
           if (current.scriptLineId && patch.text != null) {
             script = script.map((l) =>
               l.id === current.scriptLineId ? { ...l, text: patch.text ?? l.text } : l,
             );
           }
-          let merged: Overlay = { ...current, ...patch };
-          // Lettering changed: size the balloon around the words (never the words around the balloon).
-          if (
-            usesMeasuredFit(merged) &&
-            LAYOUT_KEYS.some((k) => k in patch) &&
-            !("w" in patch || "h" in patch)
-          ) {
-            const box = fitLetterBox(
-              merged,
-              pageAspect(s.paperSize),
-              merged.autoFit === false ? "grow" : "auto",
-              current,
-            );
-            if (box) merged = { ...merged, ...box };
-          } else if (usesMeasuredFit(merged) && ("w" in patch || "h" in patch)) {
-            // A box set directly never squeezes the words out.
-            const min = letterMinBox(merged, pageAspect(s.paperSize));
-            if (min) {
-              merged = {
-                ...merged,
-                w: Math.max(merged.w, min.minW),
-                h: Math.max(merged.h, min.minH),
-              };
+          const apply = (from: Overlay): Overlay => {
+            let merged: Overlay = { ...from, ...patch };
+            // Lettering changed: size the balloon around the words (never the words around the balloon).
+            if (
+              usesMeasuredFit(merged) &&
+              LAYOUT_KEYS.some((k) => k in patch) &&
+              !("w" in patch || "h" in patch)
+            ) {
+              const box = fitLetterBox(
+                merged,
+                pageAspect(s.paperSize),
+                merged.autoFit === false ? "grow" : "auto",
+                from,
+              );
+              if (box) merged = { ...merged, ...box };
+            } else if (usesMeasuredFit(merged) && ("w" in patch || "h" in patch)) {
+              // A box set directly never squeezes the words out.
+              const min = letterMinBox(merged, pageAspect(s.paperSize));
+              if (min) {
+                merged = {
+                  ...merged,
+                  w: Math.max(merged.w, min.minW),
+                  h: Math.max(merged.h, min.minH),
+                };
+              }
             }
-          }
+            return merged;
+          };
           const pages = patchPage(s.pages, s.currentPageId, (page) => ({
             ...page,
-            overlays: pageOverlays(page).map((o) =>
-              o.id === id ? merged : o,
-            ),
+            overlays: pageOverlays(page).map((o) => (targets.has(o.id) ? apply(o) : o)),
           }));
           if (live) {
             get().beginLiveEdit();
@@ -1541,6 +1731,11 @@ export const useStudio = create<StudioState>()(
 
         deleteSelection: () => {
           const s = get();
+          const ids = selectionIds(s);
+          if (ids.length > 1) {
+            s.removeOverlays(ids);
+            return;
+          }
           if (s.selectedOverlayId) {
             s.removeOverlay(s.selectedOverlayId);
             return;
@@ -1554,6 +1749,18 @@ export const useStudio = create<StudioState>()(
 
         duplicateOverlay: (id) => {
           const s = get();
+          const selected = selectionIds(s);
+          if (id == null && selected.length > 1) {
+            // Each copy lands beside its original; the copies become the selection.
+            const copies: string[] = [];
+            for (const sid of selected) {
+              get().duplicateOverlay(sid);
+              const made = get().selectedOverlayId;
+              if (made && made !== sid) copies.push(made);
+            }
+            get().selectOverlays(copies);
+            return;
+          }
           const oid = id ?? s.selectedOverlayId;
           const page = s.currentPage();
           const src = pageOverlays(page).find((o) => o.id === oid);
@@ -1790,22 +1997,13 @@ export const useStudio = create<StudioState>()(
         },
 
         nudgeOverlay: (id, dx, dy) => {
-          const o = pageOverlays(get().currentPage()).find((x) => x.id === id);
-          if (!o || o.locked) return;
-          commit({
-            pages: patchPage(get().pages, get().currentPageId, (page) => ({
-              ...page,
-              overlays: pageOverlays(page).map((item) =>
-                item.id === id
-                  ? {
-                      ...item,
-                      x: clamp(item.x + dx, 0, 100 - item.w),
-                      y: clamp(item.y + dy, 0, 100 - item.h),
-                    }
-                  : item,
-              ),
-            })),
-          });
+          const s = get();
+          const selected = selectionIds(s);
+          const ids = new Set(selected.includes(id) ? selected : [id]);
+          const moves = pageOverlays(s.currentPage())
+            .filter((o) => ids.has(o.id) && !o.locked)
+            .map((o) => ({ id: o.id, x: o.x + dx, y: o.y + dy }));
+          if (moves.length) get().moveOverlays(moves);
         },
 
         undo: () => {

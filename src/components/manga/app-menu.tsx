@@ -10,7 +10,7 @@ import {
 import { Check, Search } from "lucide-react";
 import { cn, prefersReducedMotion } from "@/lib/utils";
 import { combo, useApplePlatform } from "@/lib/manga/hotkeys";
-import { useStudio } from "@/lib/manga/store";
+import { useStudio, selectionIds } from "@/lib/manga/store";
 import { copyOverlayToClipboard } from "@/lib/manga/clipboard";
 import { Floating } from "@/components/manga/floating";
 import { insertTitle } from "@/lib/manga/actions";
@@ -149,6 +149,7 @@ function AppMenuInner({
   const snapEdges = useStudio((s) => s.snapEdges);
   const handInk = useStudio((s) => s.handInk);
   const hasOverlayClip = useStudio((s) => s.overlayClipboard !== null);
+  const selectedCount = useStudio((s) => selectionIds(s).length);
   const canFlipTail = Boolean(
     selectedOverlay && isDialogue(selectedOverlay.kind) && !selectedOverlay.locked,
   );
@@ -301,6 +302,12 @@ function AppMenuInner({
           keys={k("D", { cmd: true })}
           disabled={!overlayId}
           onClick={() => run(() => useStudio.getState().duplicateOverlay())}
+        />
+        <Item
+          label="Select All"
+          keys={k("A", { cmd: true })}
+          disabled={!overlays.length}
+          onClick={() => run(() => useStudio.getState().selectAllOverlays())}
         />
         <Item
           label="Bold"
@@ -501,6 +508,34 @@ function AppMenuInner({
           onClick={() =>
             run(() => overlayId && useStudio.getState().sendToBack(overlayId))
           }
+        />
+        <Divider />
+        {(
+          [
+            ["Align Left", "left"],
+            ["Align Center", "centerX"],
+            ["Align Right", "right"],
+            ["Align Top", "top"],
+            ["Align Middle", "centerY"],
+            ["Align Bottom", "bottom"],
+          ] as const
+        ).map(([label, mode]) => (
+          <Item
+            key={mode}
+            label={label}
+            disabled={!overlayId}
+            onClick={() => run(() => useStudio.getState().alignSelection(mode))}
+          />
+        ))}
+        <Item
+          label="Distribute Horizontally"
+          disabled={selectedCount < 3}
+          onClick={() => run(() => useStudio.getState().distributeSelection("x"))}
+        />
+        <Item
+          label="Distribute Vertically"
+          disabled={selectedCount < 3}
+          onClick={() => run(() => useStudio.getState().distributeSelection("y"))}
         />
         <Divider />
         <Item

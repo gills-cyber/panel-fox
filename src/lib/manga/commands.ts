@@ -4,7 +4,7 @@ import { pageLabel } from "./book";
 import { combo } from "./hotkeys";
 import { isDialogue, pageOverlays } from "./lettering";
 import type { ProjectMeta } from "./project";
-import { useStudio } from "./store";
+import { useStudio, selectionIds } from "./store";
 import { TEMPLATES } from "./templates";
 
 /** One entry in the command palette: the same verbs as the menubar, searchable. */
@@ -79,6 +79,7 @@ export function buildCommands(ctx: CommandContext): Command[] {
   const page = s.currentPage();
   const overlays = pageOverlays(page);
   const overlayId = s.selectedOverlayId;
+  const selectedCount = selectionIds(s).length;
   const overlayIndex = overlays.findIndex((o) => o.id === overlayId);
   const selectedOverlay = overlayId ? overlays.find((o) => o.id === overlayId) : undefined;
   const canFlipTail = Boolean(
@@ -197,6 +198,15 @@ export function buildCommands(ctx: CommandContext): Command[] {
       keys: k("D", { cmd: true }),
       disabled: !overlayId,
       run: () => useStudio.getState().duplicateOverlay(),
+    },
+    {
+      id: "edit.selectAll",
+      label: "Select All",
+      group: "Edit",
+      keys: k("A", { cmd: true }),
+      keywords: ["balloons", "every"],
+      disabled: !overlays.length,
+      run: () => useStudio.getState().selectAllOverlays(),
     },
     { id: "edit.bold", label: "Bold", group: "Edit", keys: k("B", { cmd: true }), disabled: !overlayId, run: toggleStyle("bold") },
     { id: "edit.italic", label: "Italic", group: "Edit", keys: k("I", { cmd: true }), disabled: !overlayId, run: toggleStyle("italic") },
@@ -365,6 +375,39 @@ export function buildCommands(ctx: CommandContext): Command[] {
         const st = useStudio.getState();
         st.sendPageTo(st.currentPageId, "cover");
       },
+    },
+    ...(
+      [
+        ["left", "Align Left"],
+        ["centerX", "Align Center"],
+        ["right", "Align Right"],
+        ["top", "Align Top"],
+        ["centerY", "Align Middle"],
+        ["bottom", "Align Bottom"],
+      ] as const
+    ).map(([mode, label]) => ({
+      id: `arrange.align.${mode}`,
+      label,
+      group: "Arrange" as const,
+      keywords: ["align", "selection"],
+      disabled: !overlayId,
+      run: () => useStudio.getState().alignSelection(mode),
+    })),
+    {
+      id: "arrange.distribute.x",
+      label: "Distribute Horizontally",
+      group: "Arrange",
+      keywords: ["space", "even"],
+      disabled: selectedCount < 3,
+      run: () => useStudio.getState().distributeSelection("x"),
+    },
+    {
+      id: "arrange.distribute.y",
+      label: "Distribute Vertically",
+      group: "Arrange",
+      keywords: ["space", "even"],
+      disabled: selectedCount < 3,
+      run: () => useStudio.getState().distributeSelection("y"),
     },
   ];
 
