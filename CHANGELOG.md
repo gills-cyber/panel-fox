@@ -155,10 +155,15 @@ re-run after every step with the same Playwright scripts.
 ### Mac keyboard set
 
 - **⌘X / ⌘C / ⌘V carry balloons.** Cut and copy put the selected balloon on
-  an internal clipboard and mirror it to the system clipboard as JSON, so a
-  balloon can be pasted into another project or another tab. Paste lands the
-  copy offset by a few pixels when it would sit on the original.
-- **Tab / ⇧Tab walk the balloons** on the page, PageDown / PageUp / Home /
+  an internal clipboard and on the system clipboard: the balloon's words as
+  plain text (so pasting into any text field inserts the words) and the
+  balloon itself in an HTML flavour only this app reads, so it can be pasted
+  into another project or another tab. Paste lands the copy offset by a few
+  pixels when it would sit on the original. A cut balloon takes its script
+  line with it; a pasted copy of a placed balloon gets its own line, like
+  Duplicate.
+- **Tab / ⇧Tab walk the balloons** once one is selected (and let go at the
+  last one, so the keyboard can leave the page), PageDown / PageUp / Home /
   End walk the pages, Return starts editing the selected balloon, ⌥⌘P / I /
   J toggle the thumbnails, Format and Document panes, ⌥⌘0 is Actual Size.
 - **Hotkey fixes found on the way.** The single-letter tool hotkeys (H, V,
@@ -196,6 +201,42 @@ re-run after every step with the same Playwright scripts.
 - **Wide pages scroll from the left edge.** At numeric zoom the spread
   container hugs its sheets, so a page wider than the stage no longer loses
   its left half behind the centred layout.
+
+### Review fixes
+
+An adversarial review of the whole pass (four reviewers, each finding checked
+by two independent skeptics against the running app and the original) found
+nine regressions, all fixed and re-verified on screen:
+
+- The inspector's Font pop-up leaked every key to the page: typeahead letters
+  added or hid balloons, Backspace deleted the balloon being formatted, Esc
+  deselected it. A widget that takes a key now keeps it from the page's
+  hotkeys, and a pop-up list counts as a typing target.
+- On Windows, AltGr arrives as Ctrl+Alt, so typing ś, ó or đ in a balloon
+  opened the Save or Projects sheet. AltGr glyphs are never read as chords.
+- Tab was a keyboard trap: it could never leave the page, and inside the
+  format bar it switched balloons instead of moving between the buttons.
+- ⌘C put the balloon on the system clipboard as raw JSON, so the next paste
+  into a text field inserted the JSON. See the keyboard set above.
+- ⌘X / ⌘V of a scripted balloon orphaned its script line.
+- In the Projects sheet, Esc inside the rename field closed the whole sheet
+  instead of cancelling the rename (Esc also backs out of a delete
+  confirmation first now).
+- On a two-page spread with an empty verso, zoom steps overshot and snapped
+  and a pinch settled on the wrong size, because the placeholder was taken
+  as the reference sheet and did not follow the zoom.
+- Repeated zoom steps (a held ⌘= or quick clicks on +) were swallowed every
+  other press and cut the motion short; a step now counts from the zoom in
+  flight and retargets the running motion.
+- ⌘0 after a window resize at a numeric zoom eased to the old Fit size and
+  then jumped; the stale size is forgotten and Fit lays out directly.
+
+Two more, older than the pass but made easier to hit by it: a document's
+identity is now stamped before its save is written, so a new document
+started while an autosave was in flight can no longer inherit the old
+project's id and overwrite it; and Duplicate in the title menu saves the
+open document first, so the copy carries the latest edit. Under Reduce
+Motion, Esc on a closing sheet no longer falls through to the page.
 
 ### Tests
 

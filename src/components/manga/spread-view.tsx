@@ -86,7 +86,11 @@ export function SpreadView({
               data-koma="spread-verso"
               style={{
                 width: pageCssWidth(zoom),
-                maxWidth: `min(calc((100dvh - 7.5rem) * ${spec.w} / ${spec.h} * 0.92), calc((100vw - 20rem) / 2 - 1.25rem))`,
+                // Sized like the real page: capped only at Fit.
+                maxWidth:
+                  zoom === "fit"
+                    ? `min(calc((100dvh - 7.5rem) * ${spec.w} / ${spec.h} * 0.92), calc((100vw - 20rem) / 2 - 1.25rem))`
+                    : undefined,
                 aspectRatio: `${spec.w} / ${spec.h}`,
               }}
             />

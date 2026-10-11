@@ -11,6 +11,9 @@ export function isTypingTarget(el: EventTarget | null) {
   if (el.isContentEditable) return true;
   const tag = el.tagName;
   if (tag === "TEXTAREA" || tag === "SELECT") return true;
+  // A pop-up button or an open list owns the keys it is given (typeahead,
+  // arrows, Return), the way an NSPopUpButton does.
+  if (el.closest('[role="combobox"],[role="listbox"],[role="option"]')) return true;
   if (tag !== "INPUT") return false;
   const type = (el.getAttribute("type") || "text").toLowerCase();
   return ![
@@ -85,14 +88,18 @@ export function handleStudioHotkey(e: KeyboardEvent) {
   }
 
   const studio = useStudio.getState();
+  const typing = isTypingTarget(e.target);
+  // Windows reports AltGr as Ctrl+Alt: a glyph typed on a Polish, Czech or
+  // US-International layout (AltGr+S is ś) must never read as a Ctrl chord.
+  const altGr = !isAppleMod && e.ctrlKey && e.altKey && !e.metaKey;
+  if (altGr && typing) return false;
   // With ⌥ held, macOS reports the dead-key glyph (⌥C is "ç"), so read the
   // physical key for letter and bracket chords.
   const key =
-    e.altKey && /^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase() : e.key;
+    e.altKey && !altGr && /^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase() : e.key;
   const code = e.code;
-  const mod = modKey(e);
+  const mod = !altGr && modKey(e);
   const overlayId = studio.selectedOverlayId;
-  const typing = isTypingTarget(e.target);
 
   if (mod && key.toLowerCase() === "d") {
     e.preventDefault();
@@ -249,22 +256,28 @@ export function handleStudioHotkey(e: KeyboardEvent) {
     }
   }
 
-  // Tab walks the page's balloons in stacking order, like objects in Keynote.
+  // Tab walks the page's balloons in stacking order, like objects in Keynote:
+  // from the page itself (not from the format bar's buttons, and not from a
+  // fresh document, where Tab belongs to the toolbar), and it lets go at the
+  // last balloon so the keyboard can leave the page.
   if (key === "Tab" && !mod && !e.altKey) {
     const focus = document.activeElement;
     const onStage =
-      !focus ||
-      focus === document.body ||
-      Boolean(focus.closest("[data-koma='page-stage']"));
-    if (!onStage) return false;
+      focus instanceof HTMLElement &&
+      focus !== document.body &&
+      Boolean(focus.closest("[data-koma='page-stage']")) &&
+      !focus.closest("[data-koma='letter-bar'],[data-koma-popover],[data-koma-menu],[role='toolbar']");
+    const fromBody = (!focus || focus === document.body) && Boolean(overlayId);
+    if (!onStage && !fromBody) return false;
     const list = pageOverlays(studio.currentPage()).filter((o) => !o.hidden);
     if (!list.length) return false;
-    e.preventDefault();
     const i = list.findIndex((o) => o.id === overlayId);
     const dir = e.shiftKey ? -1 : 1;
-    const next = i < 0 ? (dir > 0 ? list[0] : list[list.length - 1]) : list[(i + dir + list.length) % list.length];
+    const j = i < 0 ? (dir > 0 ? 0 : list.length - 1) : i + dir;
+    if (j < 0 || j >= list.length) return false;
+    e.preventDefault();
     studio.selectPanel(null);
-    studio.selectOverlay(next!.id);
+    studio.selectOverlay(list[j]!.id);
     return true;
   }
   // Page keys walk the document.

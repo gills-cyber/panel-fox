@@ -1600,7 +1600,8 @@ export const useStudio = create<StudioState>()(
           const oid = id ?? s.selectedOverlayId;
           const src = pageOverlays(s.currentPage()).find((o) => o.id === oid);
           if (!src) return null;
-          const clip: Overlay = { ...src, scriptLineId: undefined, chainId: undefined };
+          // The script line stays named so a cut balloon brings its line back.
+          const clip: Overlay = { ...src, chainId: undefined };
           set({ overlayClipboard: clip });
           return clip;
         },
@@ -1629,11 +1630,36 @@ export const useStudio = create<StudioState>()(
             chainId: undefined,
             hidden: false,
           };
+          // A cut balloon takes its script line back; a copy of a placed
+          // balloon gets its own line, like Duplicate. A line from another
+          // document matches nothing and the copy stays unscripted.
+          let script = s.script;
+          const line = src.scriptLineId
+            ? script.find((l) => l.id === src.scriptLineId)
+            : undefined;
+          if (line && line.overlayId == null) {
+            copy.scriptLineId = line.id;
+            script = script.map((l) =>
+              l.id === line.id ? { ...l, overlayId: copy.id, pageId: page.id, text: copy.text } : l,
+            );
+          } else if (line) {
+            const fresh: ScriptLine = {
+              ...line,
+              id: uid("line"),
+              overlayId: copy.id,
+              pageId: page.id,
+              text: copy.text,
+            };
+            copy.scriptLineId = fresh.id;
+            const at = script.findIndex((l) => l.id === line.id);
+            script = [...script.slice(0, at + 1), fresh, ...script.slice(at + 1)];
+          }
           commit({
             pages: patchPage(s.pages, s.currentPageId, (p) => ({
               ...p,
               overlays: [...list, copy],
             })),
+            script,
             selectedOverlayId: copy.id,
             selectedPanelId: null,
             overlayClipboard: payload ? s.overlayClipboard : { ...src, x: copy.x, y: copy.y },

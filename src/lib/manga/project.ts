@@ -179,8 +179,11 @@ export async function saveNamedProject(name?: string, asNew = false) {
     updatedAt: Date.now(),
     doc: { ...snapshotDoc(), projectId: id, projectName: trimmed },
   };
-  await idbPutProject(record);
+  // The document takes its identity before the write, never after it: a new
+  // or opened document that replaced this one while the write was in flight
+  // must not be stamped with the old project's id (and then saved over it).
   useStudio.setState({ projectId: id, projectName: trimmed });
+  await idbPutProject(record);
   return record;
 }
 
@@ -229,6 +232,8 @@ export async function startNewBrochure(opts?: { templateId?: string }) {
 }
 
 export async function duplicateNamedProject(id: string) {
+  // The open document is duplicated as it is now, not as it was last saved.
+  if (useStudio.getState().projectId === id) await saveNamedProject();
   const record = await idbGetProject<ProjectRecord>(id);
   if (!record?.doc) throw new Error("Project not found");
   const name = await uniqueProjectName(`${record.name} copy`);

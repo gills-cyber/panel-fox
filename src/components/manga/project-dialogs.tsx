@@ -187,6 +187,15 @@ export function OpenProjectDialog({
         e.preventDefault();
         searchRef.current?.focus();
       }}
+      onEscapeKeyDown={(e) => {
+        // Esc backs out of a rename or a delete confirmation first; only a
+        // second Esc closes the sheet.
+        if (renameId !== null || confirmId !== null) {
+          e.preventDefault();
+          setRenameId(null);
+          setConfirmId(null);
+        }
+      }}
     >
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="border-b border-line px-4 py-3">

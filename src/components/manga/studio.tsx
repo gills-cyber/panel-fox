@@ -377,12 +377,14 @@ export function Studio() {
       const files = [...(e.clipboardData?.files ?? [])];
       if (!files.length) {
         if (isTypingTarget(e.target)) return;
-        // A balloon copied here (or in another window) comes back as JSON;
-        // with nothing on the system clipboard the in-app copy still pastes.
+        // A balloon copied here (or in another window) rides in the HTML
+        // flavour; newer text from elsewhere means there is nothing to paste
+        // on the page, and with an empty clipboard the in-app copy pastes.
         const text = e.clipboardData?.getData("text/plain") ?? "";
-        const fromText = parseOverlayClipboard(text);
-        if (!fromText && text.trim()) return;
-        const pasted = useStudio.getState().pasteOverlay(fromText);
+        const html = e.clipboardData?.getData("text/html") ?? "";
+        const fromClip = parseOverlayClipboard(text, html);
+        if (!fromClip && text.trim()) return;
+        const pasted = useStudio.getState().pasteOverlay(fromClip);
         if (pasted) e.preventDefault();
         return;
       }
@@ -394,10 +396,26 @@ export function Studio() {
         toast.error(err instanceof Error ? err.message : "Paste failed"),
       );
     }
+    // A sheet that closes on this very key (Radix dismisses in the capture
+    // phase, and with motion off it unmounts at once) must still own it.
+    let dialogAtCapture: Element | null = null;
+    function onKeyCapture() {
+      dialogAtCapture = document.querySelector("[data-koma-dialog]");
+    }
     function onKey(e: KeyboardEvent) {
+      // A widget that already took the key (a pop-up list's typeahead and
+      // arrows, a layer's Esc) keeps it from the page's hotkeys; the text
+      // fields handle their own keys and the hotkey layer knows them.
+      if (
+        e.defaultPrevented &&
+        !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)
+      ) {
+        return;
+      }
       // ⌘K (or ⌘⇧P) toggles the command palette; it closes itself too, but
       // another sheet keeps the keyboard, and the reader has no palette.
-      const dialog = document.querySelector("[data-koma-dialog]");
+      const dialog = dialogAtCapture ?? document.querySelector("[data-koma-dialog]");
+      dialogAtCapture = null;
       if (
         modKey(e) &&
         !e.altKey &&
@@ -452,7 +470,7 @@ export function Studio() {
         (e.key === "=" || e.key === "+" || e.code === "NumpadAdd")
       ) {
         e.preventDefault();
-        zoomToRef.current(stepZoom(zoomRef.current, 1));
+        zoomToRef.current(stepZoom(zoomBaseRef.current(), 1));
         return;
       }
       if (
@@ -461,7 +479,7 @@ export function Studio() {
         (e.key === "-" || e.code === "NumpadSubtract")
       ) {
         e.preventDefault();
-        zoomToRef.current(stepZoom(zoomRef.current, -1));
+        zoomToRef.current(stepZoom(zoomBaseRef.current(), -1));
         return;
       }
       if (modKey(e) && e.code === "Digit0" && e.altKey && !isTypingTarget(e.target)) {
@@ -483,9 +501,11 @@ export function Studio() {
       }
     }
     window.addEventListener("paste", onPaste);
+    window.addEventListener("keydown", onKeyCapture, true);
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("paste", onPaste);
+      window.removeEventListener("keydown", onKeyCapture, true);
       window.removeEventListener("keydown", onKey);
     };
   }, []);
@@ -496,8 +516,14 @@ export function Studio() {
     const subject = stage?.querySelector<HTMLElement>("[data-koma-zoom-subject]") ?? null;
     const pages = stage ? [...stage.querySelectorAll<HTMLElement>(".paper-sheet")] : [];
     if (!stage || !subject || !pages.length) return null;
-    return { stage, subject, pages, page: pages[0]! };
+    // The reference sheet is a real page: a spread's empty verso is a
+    // placeholder that does not follow the zoom.
+    const page = pages.find((p) => p.dataset.koma !== "spread-verso") ?? pages[0]!;
+    return { stage, subject, pages, page };
   }, []);
+
+  /** The zoom a step counts from: the one in flight, else the one laid out. */
+  const zoomBase = useCallback(() => zoomMotion.current?.next ?? zoomRef.current, []);
 
   const targetPx = useCallback(
     (z: PageZoom) => (z === "fit" ? fitPx.current : Math.round(5.6 * z)),
@@ -551,7 +577,12 @@ export function Studio() {
     const stage = stageRef.current;
     if (!stage) return;
     const ro = new ResizeObserver(() => {
-      if (zoomRef.current !== "fit") return;
+      // At a numeric zoom the Fit width is unknown until Fit shows again, so
+      // forget the stale one rather than ease to it.
+      if (zoomRef.current !== "fit") {
+        fitPx.current = 0;
+        return;
+      }
       const parts = zoomParts();
       if (parts) fitPx.current = parts.page.offsetWidth;
     });
@@ -582,13 +613,16 @@ export function Studio() {
       const anchor = anchorAt(seen, at?.x ?? sr.left + sr.width / 2, at?.y ?? sr.top + sr.height / 2);
       const sheets = union(pages.map((p) => layoutRect(stage, p)))!;
       const place = placeZoom(stage, subject, sheets, k, anchor);
-      const token = (zoomMotion.current?.token ?? 0) + 1;
+      const inFlight = zoomMotion.current;
+      const token = (inFlight?.token ?? 0) + 1;
       zoomMotion.current = { token, next, place };
       const target = transformFor(place);
       // Nothing to animate when the sheets already sit there (a pinch that
-      // settled on its own size), or when motion is off.
+      // settled on its own size), or when motion is off. A step chained onto
+      // a running motion retargets it instead.
       const cur = subject.style.transform ? lastPlace.current : { k: 1, dx: 0, dy: 0 };
       const still =
+        !inFlight &&
         cur &&
         Math.abs(cur.k - k) < 0.002 &&
         Math.abs(cur.dx - place.dx) < 1 &&
@@ -622,6 +656,8 @@ export function Studio() {
   );
   const zoomToRef = useRef(zoomTo);
   zoomToRef.current = zoomTo;
+  const zoomBaseRef = useRef(zoomBase);
+  zoomBaseRef.current = zoomBase;
 
   // Trackpad pinch (and ⌘/Ctrl + wheel) scale the page live under the fingers;
   // when the gesture ends the size settles on a preset in reach and lays out.
@@ -932,8 +968,8 @@ export function Studio() {
         onTheme={() =>
           useStudio.getState().setTheme(theme === "dark" ? "light" : "dark")
         }
-        onZoomIn={() => zoomTo(stepZoom(zoom, 1))}
-        onZoomOut={() => zoomTo(stepZoom(zoom, -1))}
+        onZoomIn={() => zoomTo(stepZoom(zoomBase(), 1))}
+        onZoomOut={() => zoomTo(stepZoom(zoomBase(), -1))}
         onZoomFit={() => zoomTo("fit")}
         onZoomActual={() => zoomTo(100)}
         onCommands={() => setCmdOpen(true)}
@@ -1120,7 +1156,7 @@ export function Studio() {
               keys={k("-", { cmd: true })}
               koma="zoom-out"
               className="hidden lg:flex md:min-w-8 md:px-1"
-              onClick={() => zoomTo(stepZoom(zoom, -1))}
+              onClick={() => zoomTo(stepZoom(zoomBase(), -1))}
             >
               <ZoomOut />
             </ToolTipBtn>
@@ -1143,7 +1179,7 @@ export function Studio() {
               keys={k("+", { cmd: true })}
               koma="zoom-in"
               className="hidden lg:flex md:min-w-8 md:px-1"
-              onClick={() => zoomTo(stepZoom(zoom, 1))}
+              onClick={() => zoomTo(stepZoom(zoomBase(), 1))}
             >
               <ZoomIn />
             </ToolTipBtn>
@@ -1857,8 +1893,8 @@ export function Studio() {
           theme,
           onTheme: () =>
             useStudio.getState().setTheme(theme === "dark" ? "light" : "dark"),
-          onZoomIn: () => zoomTo(stepZoom(zoomRef.current, 1)),
-          onZoomOut: () => zoomTo(stepZoom(zoomRef.current, -1)),
+          onZoomIn: () => zoomTo(stepZoom(zoomBase(), 1)),
+          onZoomOut: () => zoomTo(stepZoom(zoomBase(), -1)),
           onZoomFit: () => zoomTo("fit"),
           onZoomActual: () => zoomTo(100),
           onSwitchProject: (id) => {
