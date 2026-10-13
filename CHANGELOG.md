@@ -303,7 +303,9 @@ Resize, Format, Hide, Show, Lock and Unlock.
   versions are kept per project.
 - **File ▸ Save a Version (⌥⌘S)** keeps this moment on demand.
 - **File ▸ Browse All Versions…** opens a sheet with the history on the left
-  and a preview of the chosen version on the right. ↑↓ move through it,
+  and a preview of the chosen version on the right, drawn by the export
+  renderer with that version's own lettering, paper and layout, so two
+  versions of the same art can be told apart. ↑↓ move through it,
   Return restores, the pencil names a version ("Inked", "Sent to editor"),
   and Delete removes one after a confirmation.
 - **Restore** puts the document back to that version. What it replaces is

@@ -1087,6 +1087,9 @@ img {
     100% var(--grid-y);
   animation: koma-fade-in var(--motion-quick) var(--ease-out) both;
 }
+.koma-version-shot {
+  animation: koma-fade-in var(--motion-quick) var(--ease-out) both;
+}
 .koma-guides {
   --guide-ink: color-mix(in srgb, var(--color-ink) 70%, transparent);
   --guide-safe: var(--color-accent);

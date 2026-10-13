@@ -47,7 +47,16 @@ export type VersionRecord = {
   assets: string[];
 };
 
-export type VersionMeta = Omit<VersionRecord, "doc" | "assets"> & { preview?: PageState };
+/** How the version's page was laid out, so its preview is drawn as it was, not as today's settings. */
+export type VersionLook = Pick<
+  ProjectDoc,
+  "gutter" | "margin" | "border" | "paper" | "rtl" | "paperSize" | "handInk"
+>;
+
+export type VersionMeta = Omit<VersionRecord, "doc" | "assets"> & {
+  preview?: PageState;
+  look?: VersionLook;
+};
 
 /** Autosaves this close together fold into one version. */
 export const VERSION_GAP_MS = 5 * 60_000;
@@ -206,7 +215,18 @@ export async function listVersions(projectId: string): Promise<VersionMeta[]> {
       } catch {
         preview = undefined;
       }
-      return { ...meta, preview };
+      const look: VersionLook | undefined = doc
+        ? {
+            gutter: doc.gutter,
+            margin: doc.margin,
+            border: doc.border,
+            paper: doc.paper,
+            rtl: doc.rtl,
+            paperSize: doc.paperSize,
+            handInk: doc.handInk,
+          }
+        : undefined;
+      return { ...meta, preview, look };
     }),
   );
 }

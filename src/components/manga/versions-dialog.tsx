@@ -3,7 +3,8 @@ import { Clock, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetTitle } from "@/components/manga/sheet";
-import { PageThumb } from "@/components/manga/page-thumb";
+import { exportPageJpeg } from "@/lib/manga/export";
+import { paperSpec } from "@/lib/manga/paper";
 import { useStudio } from "@/lib/manga/store";
 import { relativeProjectTime, requestSave } from "@/lib/manga/project";
 import {
@@ -308,19 +309,8 @@ export function VersionsDialog({ open, onClose }: { open: boolean; onClose: () =
         <div className="flex min-w-0 flex-1 flex-col items-center gap-3 overflow-y-auto p-5" data-koma="version-detail">
           {selected ? (
             <>
-              <div className="w-44 shrink-0 overflow-hidden rounded-sm bg-paper shadow-page ring-1 ring-line [&_.koma-thumb]:w-full [&_.koma-thumb]:px-0 [&_.koma-thumb]:py-0 [&_.koma-thumb-label]:hidden">
-                {selected.preview ? (
-                  <PageThumb
-                    page={selected.preview}
-                    index={1}
-                    selected={false}
-                    passive
-                    onClick={() => {}}
-                    className="w-44 px-0 py-0"
-                  />
-                ) : (
-                  <div className="aspect-[210/297] w-full bg-ink/5" />
-                )}
+              <div className="w-44 shrink-0 overflow-hidden rounded-sm bg-paper shadow-page ring-1 ring-line">
+                <VersionPreview version={selected} />
               </div>
               <div className="w-full text-center">
                 {renameId === selected.id ? (
@@ -435,4 +425,62 @@ export function VersionsDialog({ open, onClose }: { open: boolean; onClose: () =
       </div>
     </Sheet>
   );
+}
+
+/**
+ * The version's page as the export draws it: its own lettering, paper and
+ * layout, so two versions of the same art can be told apart at a glance.
+ */
+function VersionPreview({ version }: { version: VersionMeta }) {
+  const [shot, setShot] = useState<{ id: string; url: string } | null>(null);
+  const latest = useRef(version);
+  latest.current = version;
+  const id = version.id;
+  const hasPage = Boolean(version.preview);
+
+  useEffect(() => {
+    const v = latest.current;
+    if (!v.preview) return;
+    let live = true;
+    let url: string | null = null;
+    const s = useStudio.getState();
+    const look = v.look;
+    exportPageJpeg({
+      page: v.preview,
+      gutter: look?.gutter ?? s.gutter,
+      margin: look?.margin ?? s.margin,
+      border: look?.border ?? s.border,
+      paper: look?.paper ?? s.paper,
+      rtl: look?.rtl ?? s.rtl,
+      paperSize: look?.paperSize ?? s.paperSize,
+      handInk: look?.handInk ?? true,
+      width: 352,
+      pixelScale: 1,
+    })
+      .then((blob) => {
+        if (!live) return;
+        url = URL.createObjectURL(blob);
+        setShot({ id: v.id, url });
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [id, hasPage]);
+
+  const spec = paperSpec(version.look?.paperSize ?? useStudio.getState().paperSize);
+  const ratio = `${spec.w} / ${spec.h}`;
+  if (shot?.id === id) {
+    return (
+      <img
+        src={shot.url}
+        alt=""
+        data-koma="version-preview"
+        className="koma-version-shot block w-full"
+        style={{ aspectRatio: ratio }}
+      />
+    );
+  }
+  return <div className="w-full bg-ink/5" style={{ aspectRatio: ratio }} />;
 }
