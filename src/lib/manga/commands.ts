@@ -30,6 +30,8 @@ export type CommandContext = {
   onImport: () => void;
   onSave: () => void;
   onSaveAs: () => void;
+  onSaveVersion: () => void;
+  onVersions: () => void;
   onOpen: () => void;
   onRename: () => void;
   onNew: () => void;
@@ -118,6 +120,21 @@ export function buildCommands(ctx: CommandContext): Command[] {
       keys: k("S", { cmd: true, shift: true }),
       keywords: ["duplicate project"],
       run: ctx.onSaveAs,
+    },
+    {
+      id: "file.saveVersion",
+      label: "Save a Version",
+      group: "File",
+      keys: k("S", { cmd: true, alt: true }),
+      keywords: ["snapshot", "history", "checkpoint"],
+      run: ctx.onSaveVersion,
+    },
+    {
+      id: "file.versions",
+      label: "Browse All Versions…",
+      group: "File",
+      keywords: ["history", "revert", "restore", "undo save", "time machine"],
+      run: ctx.onVersions,
     },
     {
       id: "file.download",

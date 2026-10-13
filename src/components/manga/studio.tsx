@@ -141,6 +141,8 @@ import {
   renameNamedProject,
   switchToProject,
 } from "@/lib/manga/project";
+import { saveVersionNow } from "@/lib/manga/versions";
+import { VersionsDialog } from "@/components/manga/versions-dialog";
 import {
   groupPagesByChapter,
   needsPad,
@@ -171,6 +173,13 @@ type Drawer = "layouts" | "images" | "adjust" | "script" | null;
 type Menu = "layout" | "zoom" | "media" | "stickers" | "title" | null;
 type InspectorTab = "format" | "document" | "script";
 type StickerTab = "manga" | "clinic" | "logos";
+
+/** ⌥⌘S and File ▸ Save a Version: keep this moment, and say so. */
+function saveVersionAndSay() {
+  void saveVersionNow()
+    .then(({ record }) => toast.success(`Saved a version of “${record.name}”`))
+    .catch(() => toast.error("Couldn’t save a version"));
+}
 
 export function Studio() {
   const page = useCurrentPage();
@@ -203,6 +212,7 @@ export function Studio() {
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveAsCopy, setSaveAsCopy] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
+  const [versionsOpen, setVersionsOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [newOpen, setNewOpen] = useState<"manga" | "brochure" | null>(null);
   // The reader stays mounted a beat after read mode ends, for its fade-out.
@@ -479,6 +489,11 @@ export function Studio() {
           e.preventDefault();
           const s = useStudio.getState();
           s.setShowGuides(!s.showGuides);
+          return;
+        }
+        if (e.code === "KeyS") {
+          e.preventDefault();
+          saveVersionAndSay();
           return;
         }
         if (e.code === "KeyL") {
@@ -882,6 +897,10 @@ export function Studio() {
     setSaveOpen(true);
   }
 
+  function handleSaveVersion() {
+    saveVersionAndSay();
+  }
+
   function handleNew() {
     setProjectsOpen(false);
     setNewOpen("manga");
@@ -979,6 +998,8 @@ export function Studio() {
         onImport={() => openPicker()}
         onSave={handleSave}
         onSaveAs={handleSaveAs}
+        onSaveVersion={handleSaveVersion}
+        onVersions={() => setVersionsOpen(true)}
         onOpen={() => setProjectsOpen(true)}
         onRename={() => setRenameTick((n) => n + 1)}
         onNew={handleNew}
@@ -1895,6 +1916,7 @@ export function Studio() {
           setSaveOpen(true);
         }}
       />
+      <VersionsDialog open={versionsOpen} onClose={() => setVersionsOpen(false)} />
       {newProjectDialog}
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
       <CommandPalette
@@ -1908,6 +1930,8 @@ export function Studio() {
           onImport: () => openPicker(),
           onSave: handleSave,
           onSaveAs: handleSaveAs,
+          onSaveVersion: handleSaveVersion,
+          onVersions: () => setVersionsOpen(true),
           onOpen: () => setProjectsOpen(true),
           onRename: () => setRenameTick((n) => n + 1),
           onNew: handleNew,

@@ -96,6 +96,8 @@ function AppMenuInner({
   onImport,
   onSave,
   onSaveAs,
+  onSaveVersion,
+  onVersions,
   onOpen,
   onRename,
   onNew,
@@ -119,6 +121,8 @@ function AppMenuInner({
   onImport: () => void;
   onSave: () => void;
   onSaveAs: () => void;
+  onSaveVersion: () => void;
+  onVersions: () => void;
   onOpen: () => void;
   onRename: () => void;
   onNew: () => void;
@@ -241,6 +245,12 @@ function AppMenuInner({
           keys={k("S", { cmd: true, shift: true })}
           onClick={() => run(onSaveAs)}
         />
+        <Item
+          label="Save a Version"
+          keys={k("S", { cmd: true, alt: true })}
+          onClick={() => run(onSaveVersion)}
+        />
+        <Item label="Browse All Versions…" onClick={() => run(onVersions)} />
         <Item
           label="Download Project File"
           onClick={() => run(onDownloadProject)}

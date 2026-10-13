@@ -6,6 +6,7 @@ import { useStudio } from "./store";
 import type { NewProjectOptions } from "./store";
 import { downloadBlob } from "./export";
 import { SAMPLES } from "./samples";
+import { deleteVersionsFor, recordVersion, type VersionKind } from "./versions";
 
 export type ProjectDoc = {
   pages: PageState[];
@@ -160,12 +161,21 @@ export const AUTOSAVE_MS = 30_000;
 /** Overwrite the open project, or create one if the page already has work. */
 export async function autosaveProject() {
   const s = useStudio.getState();
-  if (s.projectId) return saveNamedProject();
+  if (s.projectId) return saveNamedProject(undefined, false, "auto");
   if (!documentHasWork()) return null;
-  return saveNamedProject(s.projectName || "Untitled");
+  return saveNamedProject(s.projectName || "Untitled", false, "auto");
 }
 
-export async function saveNamedProject(name?: string, asNew = false) {
+/**
+ * Write the open document to the library. `version` says what the version
+ * history keeps of this write: a Save lands as a version, autosaves are
+ * throttled, and `false` keeps nothing (a restore writes without versioning).
+ */
+export async function saveNamedProject(
+  name?: string,
+  asNew = false,
+  version: VersionKind | false = "save",
+) {
   const s = useStudio.getState();
   const id = !asNew && s.projectId ? s.projectId : uid("proj");
   const requested = (name ?? s.projectName ?? "Untitled").trim() || "Untitled";
@@ -184,6 +194,13 @@ export async function saveNamedProject(name?: string, asNew = false) {
   // must not be stamped with the old project's id (and then saved over it).
   useStudio.setState({ projectId: id, projectName: trimmed });
   await idbPutProject(record);
+  if (version) {
+    try {
+      await recordVersion(record, version);
+    } catch {
+      /* the save stands even when the history could not be written */
+    }
+  }
   return record;
 }
 
@@ -191,11 +208,11 @@ export async function saveNamedProject(name?: string, asNew = false) {
 export async function saveCurrentIfNeeded() {
   const s = useStudio.getState();
   if (s.projectId) {
-    const record = await saveNamedProject();
+    const record = await saveNamedProject(undefined, false, "auto");
     return { saved: true as const, name: record.name };
   }
   if (documentHasWork()) {
-    const record = await saveNamedProject(s.projectName || "Untitled", true);
+    const record = await saveNamedProject(s.projectName || "Untitled", true, "auto");
     return { saved: true as const, name: record.name };
   }
   return { saved: false as const, name: s.projectName };
@@ -233,7 +250,7 @@ export async function startNewBrochure(opts?: { templateId?: string }) {
 
 export async function duplicateNamedProject(id: string) {
   // The open document is duplicated as it is now, not as it was last saved.
-  if (useStudio.getState().projectId === id) await saveNamedProject();
+  if (useStudio.getState().projectId === id) await saveNamedProject(undefined, false, "auto");
   const record = await idbGetProject<ProjectRecord>(id);
   if (!record?.doc) throw new Error("Project not found");
   const name = await uniqueProjectName(`${record.name} copy`);
@@ -270,6 +287,11 @@ export async function renameNamedProject(id: string, name: string) {
 
 export async function deleteNamedProject(id: string) {
   await idbDeleteProject(id);
+  try {
+    await deleteVersionsFor(id);
+  } catch {
+    /* orphaned versions are harmless */
+  }
   const s = useStudio.getState();
   if (s.projectId === id) {
     useStudio.setState({ projectId: null });

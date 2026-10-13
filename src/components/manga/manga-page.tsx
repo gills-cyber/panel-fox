@@ -23,6 +23,7 @@ import { PanelFrame } from "./panel-frame";
 import { Bubble, ChainLayer } from "./bubble";
 import { SnapGuides } from "./balloon-style";
 import { PageGrid, PrintGuides } from "./print-guides";
+import { useHydrated } from "@/hooks/use-hydrated";
 import { toast } from "sonner";
 import { pageOverlays, chainGroups, isChainTail, isChained } from "@/lib/manga/lettering";
 import { cn } from "@/lib/utils";
@@ -60,8 +61,10 @@ export function MangaPage({
   const page = pageOverride ?? livePage;
   const paperSize = useStudio((s) => s.paperSize);
   const bleed = useStudio((s) => s.bleed);
-  const showGuides = useStudio((s) => s.showGuides);
-  const showGrid = useStudio((s) => s.showGrid);
+  const hydrated = useHydrated();
+  // Device prefs the server cannot see: only drawn once the page has hydrated.
+  const showGuides = useStudio((s) => s.showGuides) && hydrated;
+  const showGrid = useStudio((s) => s.showGrid) && hydrated;
   const snapEdges = useStudio((s) => s.snapEdges);
   const snapGuides = useStudio((s) => s.snapGuides);
   const spec = paperSpec(paperSize);
