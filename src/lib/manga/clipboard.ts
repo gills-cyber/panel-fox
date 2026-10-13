@@ -1,5 +1,5 @@
 import { fileToPanelSrc } from "./image";
-import { useStudio } from "./store";
+import { selectionIds, useStudio } from "./store";
 import type { Overlay, PanelImage } from "./types";
 
 let copied: PanelImage | null = null;
@@ -71,16 +71,33 @@ function escapeHtml(text: string) {
 }
 
 /**
- * Copy (or cut) a balloon. The system clipboard gets the balloon's words as
- * plain text, so a later paste into a text field inserts the words, and the
- * balloon itself rides along in an HTML flavour that only this app reads.
+ * Copy (or cut) a balloon, or every balloon of a multi-selection. The system
+ * clipboard gets the words as plain text, so a later paste into a text field
+ * inserts the words, and the balloons themselves ride along in an HTML
+ * flavour that only this app reads.
  */
 export function copyOverlayToClipboard(id?: string | null, cut = false) {
   const s = useStudio.getState();
-  const clip = cut ? s.cutOverlay(id) : s.copyOverlay(id);
-  if (!clip) return null;
-  const json = JSON.stringify({ koma: OVERLAY_MIME_TAG, v: 1, overlay: clip });
-  const text = clip.text ?? "";
+  const ids = selectionIds(s);
+  const group = ids.length > 1 && (id == null || ids.includes(id));
+  let clips: Overlay[];
+  if (group) {
+    clips = cut ? s.cutOverlays(ids) : s.copyOverlays(ids);
+  } else {
+    const one = cut ? s.cutOverlay(id) : s.copyOverlay(id);
+    clips = one ? [one] : [];
+  }
+  if (!clips.length) return null;
+  const json = JSON.stringify({
+    koma: OVERLAY_MIME_TAG,
+    v: 2,
+    overlay: clips[clips.length - 1],
+    ...(clips.length > 1 ? { overlays: clips } : {}),
+  });
+  const text = clips
+    .map((c) => (c.text ?? "").trim())
+    .filter(Boolean)
+    .join("\n\n");
   const html = `<span ${OVERLAY_ATTR}="${toBase64(json)}">${escapeHtml(text)}</span>`;
   try {
     const cb = navigator.clipboard;
@@ -99,11 +116,11 @@ export function copyOverlayToClipboard(id?: string | null, cut = false) {
   } catch {
     /* no clipboard access: the in-app copy still pastes */
   }
-  return clip;
+  return clips[clips.length - 1]!;
 }
 
-/** The balloon inside pasted content, when it is one of ours. */
-export function parseOverlayClipboard(text: string, html = ""): Overlay | null {
+/** The balloons inside pasted content, when it is ours. */
+export function parseOverlayClipboard(text: string, html = ""): Overlay[] | null {
   const carried = /data-koma-overlay="([A-Za-z0-9+/=]+)"/.exec(html);
   if (carried) {
     try {
@@ -115,23 +132,31 @@ export function parseOverlayClipboard(text: string, html = ""): Overlay | null {
   return parseOverlayJson(text);
 }
 
-function parseOverlayJson(text: string): Overlay | null {
+function isOverlay(o: Partial<Overlay> | null | undefined): o is Overlay {
+  return (
+    !!o &&
+    typeof o.kind === "string" &&
+    typeof o.x === "number" &&
+    typeof o.y === "number" &&
+    typeof o.w === "number" &&
+    typeof o.h === "number"
+  );
+}
+
+function parseOverlayJson(text: string): Overlay[] | null {
   if (!text || text[0] !== "{" || !text.includes(OVERLAY_MIME_TAG)) return null;
   try {
-    const data = JSON.parse(text) as { koma?: unknown; overlay?: Partial<Overlay> };
-    const o = data.overlay;
-    if (
-      data.koma !== OVERLAY_MIME_TAG ||
-      !o ||
-      typeof o.kind !== "string" ||
-      typeof o.x !== "number" ||
-      typeof o.y !== "number" ||
-      typeof o.w !== "number" ||
-      typeof o.h !== "number"
-    ) {
-      return null;
+    const data = JSON.parse(text) as {
+      koma?: unknown;
+      overlay?: Partial<Overlay>;
+      overlays?: Partial<Overlay>[];
+    };
+    if (data.koma !== OVERLAY_MIME_TAG) return null;
+    if (Array.isArray(data.overlays)) {
+      const list = data.overlays.filter(isOverlay);
+      if (list.length) return list;
     }
-    return o as Overlay;
+    return isOverlay(data.overlay) ? [data.overlay] : null;
   } catch {
     return null;
   }

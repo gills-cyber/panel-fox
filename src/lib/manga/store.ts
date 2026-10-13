@@ -23,12 +23,12 @@ import type {
 import { SAMPLES } from "./samples";
 import { boxesForPage, getTemplate, layoutTemplate, panelIds } from "./templates";
 import { freshImage } from "./image";
-import { makeOverlay, pageOverlays, demoOverlays, isDialogue, flipDialogueTail, fitBubbleSize, overlayKindLabel } from "./lettering";
+import { makeOverlay, pageOverlays, demoOverlays, isDialogue, flipDialogueTail, fitBubbleSize, overlayKindLabel, scaleOverlayBy, LETTER_FONT_MAX, LETTER_FONT_MIN } from "./lettering";
 import type { SnapGuide } from "./balloons";
 import { roundRect } from "./resize";
 import { clamp, uid } from "@/lib/utils";
 import type { PaperSizeId, OverlayStyle } from "./paper";
-import { DEFAULT_PAPER_SIZE, pageAspect } from "./paper";
+import { DEFAULT_PAPER_SIZE, pageAspect, paperSpec } from "./paper";
 import { LAYOUT_KEYS, fitLetterBox, letterMinBox, usesMeasuredFit } from "./fit";
 import { applyTheme, readPrefs, writePrefs } from "./prefs";
 import { BROCHURE_TEMPLATE, makeBrochurePage } from "./brochure";
@@ -132,7 +132,9 @@ function flushPersist() {
   if (!persistPending) return;
   const { name, value } = persistPending;
   persistPending = null;
-  void idbSet("kv", name, JSON.stringify(value));
+  // The session copy is best effort: a full disk is reported by the project
+  // save, and the next change tries this again.
+  void idbSet("kv", name, JSON.stringify(value)).catch(() => {});
 }
 
 const idbStorage: PersistStorage<unknown> = {
@@ -141,7 +143,9 @@ const idbStorage: PersistStorage<unknown> = {
       migrated = true;
       await migrateLocalStorageSession();
     }
-    const raw = await idbGet("kv", name);
+    // A read that fails still finishes rehydration (from the defaults), so the
+    // device's prefs are applied and the studio saves as usual.
+    const raw = await idbGet("kv", name).catch(() => null);
     if (!raw) return null;
     try {
       return JSON.parse(raw) as { state: unknown; version?: number };
@@ -335,6 +339,8 @@ type StudioState = {
   styleClipboard: OverlayStyle | null;
   /** A balloon copied with ⌘C; not saved with the document. */
   overlayClipboard: Overlay | null;
+  /** Every balloon of a multi-selection copied with ⌘C (null for a single copy). */
+  overlayClipboardSet: Overlay[] | null;
   layoutClipboard: { templateId: string; panels: Pick<PanelState, "rect" | "shape" | "rotate">[] } | null;
   rtl: boolean;
   showNumbers: boolean;
@@ -361,7 +367,11 @@ type StudioState = {
     live?: boolean,
     label?: string,
   ) => void;
-  removeOverlays: (ids: string[]) => void;
+  removeOverlays: (ids: string[], label?: string) => void;
+  /** A+ / A− on a multi-selection: each balloon's type steps from its own size. */
+  bumpOverlaysFont: (ids: string[], delta: number) => void;
+  /** Scale several balloons about their own centres; `live` while a wheel streams. */
+  scaleOverlays: (ids: string[], factor: number, live?: boolean) => void;
   alignSelection: (mode: AlignMode) => void;
   distributeSelection: (axis: "x" | "y") => void;
   editPanel: (id: string | null) => void;
@@ -447,13 +457,18 @@ type StudioState = {
   updateOverlay: (id: string, patch: Partial<Overlay>, live?: boolean) => void;
   beginLiveEdit: () => void;
   endLiveEdit: (record?: boolean, label?: string) => void;
-  removeOverlay: (id: string) => void;
+  removeOverlay: (id: string, label?: string) => void;
   deleteSelection: () => void;
   duplicateOverlay: (id?: string | null) => void;
   copyOverlay: (id?: string | null) => Overlay | null;
   cutOverlay: (id?: string | null) => Overlay | null;
+  /** Copy several balloons at once (page order); they paste back as a group. */
+  copyOverlays: (ids: string[]) => Overlay[];
+  cutOverlays: (ids: string[]) => Overlay[];
   /** Paste the given overlay (from the system clipboard) or the in-app one. */
   pasteOverlay: (payload?: Overlay | null) => Overlay | null;
+  /** Paste a group (from the system clipboard) or the in-app copy, as one step. */
+  pasteOverlays: (payload?: Overlay[] | null) => Overlay[];
   bringForward: (id: string) => void;
   sendBackward: (id: string) => void;
   bringToFront: (id: string) => void;
@@ -485,16 +500,70 @@ type StudioState = {
   assignSpeaker: (overlayId: string, speakerId: string | null) => void;
 };
 
+/** A balloon with `patch` applied, its box refitted around its words when the lettering changed. */
+function refitPatched(from: Overlay, patch: Partial<Overlay>, aspect: number): Overlay {
+  let merged: Overlay = { ...from, ...patch };
+  // Lettering changed: size the balloon around the words (never the words around the balloon).
+  if (
+    usesMeasuredFit(merged) &&
+    LAYOUT_KEYS.some((k) => k in patch) &&
+    !("w" in patch || "h" in patch)
+  ) {
+    const box = fitLetterBox(merged, aspect, merged.autoFit === false ? "grow" : "auto", from);
+    if (box) merged = { ...merged, ...box };
+  } else if (usesMeasuredFit(merged) && ("w" in patch || "h" in patch)) {
+    // A box set directly never squeezes the words out.
+    const min = letterMinBox(merged, aspect);
+    if (min) {
+      merged = {
+        ...merged,
+        w: Math.max(merged.w, min.minW),
+        h: Math.max(merged.h, min.minH),
+      };
+    }
+  }
+  return merged;
+}
+
 const first = makePage(DEFAULT_TEMPLATE, true, "page_demo");
-const boot = readPrefs();
+// The first client render has to match the server's HTML, or React keeps the
+// server's attributes (an A4-shaped sheet for a B5 document, say). So the
+// store starts from the defaults, and the device's prefs arrive with
+// rehydration (`merge` below), right after the studio mounts.
+const prefsAtBoot = readPrefs();
+const boot: ReturnType<typeof readPrefs> = {};
 
 export const useStudio = create<StudioState>()(
   persist(
-    (set, get) => {
+    (rawSet, get) => {
+      // Every write of the primary balloon writes the whole selection with it,
+      // so a list left over from an earlier multi-selection can never come back.
+      const withIds = <T extends object>(p: T): T =>
+        "selectedOverlayId" in p && !("selectedOverlayIds" in p)
+          ? {
+              ...p,
+              selectedOverlayIds: (p as { selectedOverlayId: string | null }).selectedOverlayId
+                ? [(p as { selectedOverlayId: string }).selectedOverlayId]
+                : [],
+            }
+          : p;
+      const set = ((partial: unknown, replace?: boolean) =>
+        (rawSet as (p: unknown, r?: boolean) => void)(
+          typeof partial === "function"
+            ? (st: StudioState) => withIds((partial as (st: StudioState) => object)(st))
+            : partial && typeof partial === "object"
+              ? withIds(partial)
+              : partial,
+          replace,
+        )) as typeof rawSet;
       function commit(extra: Partial<StudioState>, label?: string) {
         const s = get();
         const now = Date.now();
-        const record = now - lastRecordAt > HISTORY_GAP;
+        // Quick edits of the same kind fold into one step (typing, a slider);
+        // a different kind of edit always starts its own, so its name is true.
+        const record =
+          now - lastRecordAt > HISTORY_GAP ||
+          (label ?? null) !== (s.past[s.past.length - 1]?.label ?? null);
         lastRecordAt = now;
         set({
           ...extra,
@@ -543,6 +612,7 @@ export const useStudio = create<StudioState>()(
         theme: boot.theme === "dark" ? "dark" : "light",
         styleClipboard: null,
         overlayClipboard: null,
+        overlayClipboardSet: null,
         layoutClipboard: null,
         rtl: Boolean(boot.rtl),
         showNumbers: Boolean(boot.showNumbers),
@@ -639,10 +709,10 @@ export const useStudio = create<StudioState>()(
           }
           commit({ pages }, label);
         },
-        removeOverlays: (ids) => {
+        removeOverlays: (ids, label = "Delete") => {
           const gone = new Set(ids);
           const s = get();
-          commitAs("Delete", {
+          commitAs(label, {
             pages: patchPage(s.pages, s.currentPageId, (page) => ({
               ...page,
               overlays: pageOverlays(page).filter((o) => !gone.has(o.id)),
@@ -655,11 +725,33 @@ export const useStudio = create<StudioState>()(
             selectedOverlayIds: s.selectedOverlayIds.filter((id) => !gone.has(id)),
           });
         },
+        scaleOverlays: (ids, factor, live = false) => {
+          const s = get();
+          const set_ = new Set(ids);
+          const pages = patchPage(s.pages, s.currentPageId, (page) => ({
+            ...page,
+            overlays: pageOverlays(page).map((o) => {
+              if (!set_.has(o.id) || o.locked) return o;
+              const merged = { ...o, ...scaleOverlayBy(o, factor) };
+              const min = usesMeasuredFit(merged) ? letterMinBox(merged, pageAspect(s.paperSize)) : null;
+              return min
+                ? { ...merged, w: Math.max(merged.w, min.minW), h: Math.max(merged.h, min.minH) }
+                : merged;
+            }),
+          }));
+          if (live) {
+            get().beginLiveEdit();
+            set({ pages });
+            return;
+          }
+          commitAs("Resize", { pages });
+        },
         alignSelection: (mode) => {
           const s = get();
           const ids = new Set(selectionIds(s));
-          const list = pageOverlays(s.currentPage()).filter((o) => ids.has(o.id) && !o.locked);
-          if (!list.length) return;
+          // Locked balloons stay put but still count toward the bounds.
+          const list = pageOverlays(s.currentPage()).filter((o) => ids.has(o.id));
+          if (!list.some((o) => !o.locked)) return;
           // One balloon aligns to the page; several align to their own bounds.
           const box =
             list.length === 1
@@ -694,8 +786,9 @@ export const useStudio = create<StudioState>()(
         distributeSelection: (axis) => {
           const s = get();
           const ids = new Set(selectionIds(s));
+          // Locked balloons keep their place and still set the spacing.
           const list = pageOverlays(s.currentPage())
-            .filter((o) => ids.has(o.id) && !o.locked)
+            .filter((o) => ids.has(o.id))
             .sort((a, b) => (axis === "x" ? a.x - b.x : a.y - b.y));
           if (list.length < 3) return;
           // Equal gaps between the boxes, the first and last staying put.
@@ -1051,7 +1144,13 @@ export const useStudio = create<StudioState>()(
         setBorder: (border) => commitAs("Page Setup", { border }),
         setPaper: (paper) => commitAs("Paper", { paper }),
         setPaperSize: (paperSize) => {
-          commitAs("Paper Size", { paperSize });
+          const s = get();
+          const oldW = paperSpec(s.paperSize).w;
+          const bleed =
+            paperSize === "webtoon" || s.paperSize === "webtoon"
+              ? 0
+              : (s.bleed * oldW) / paperSpec(paperSize).w;
+          commitAs("Paper Size", { paperSize, bleed });
           if (paperSize === "webtoon") set({ spread: false });
         },
         setBleed: (bleed) => commitAs("Bleed", { bleed }),
@@ -1180,7 +1279,8 @@ export const useStudio = create<StudioState>()(
           get().updateOverlay(id, { hidden: !o.hidden });
         },
         togglePanelLock: (id) => {
-          commitAs("Lock Panel", {
+          const was = get().currentPage().panels.find((p) => p.id === id)?.locked;
+          commitAs(was ? "Unlock Panel" : "Lock Panel", {
             pages: patchPage(get().pages, get().currentPageId, (page) => ({
               ...page,
               panels: page.panels.map((p) =>
@@ -1288,7 +1388,7 @@ export const useStudio = create<StudioState>()(
           set({
             placing,
             arranging: placing ? false : get().arranging,
-            selectedOverlayId: placing ? null : get().selectedOverlayId,
+            ...(placing ? { selectedOverlayId: null } : {}),
           }),
 
         addPage: (atIndex) => {
@@ -1651,52 +1751,29 @@ export const useStudio = create<StudioState>()(
           const current = onPage.find((x) => x.id === id);
           if (!current) return;
           const keys = Object.keys(patch) as (keyof Overlay)[];
-          if (
-            keys.length > 0 &&
-            keys.every((k) => Object.is(current[k], patch[k]))
-          ) {
-            return;
-          }
           // Formatting one balloon of a multi-selection formats them all.
           const selected = selectionIds(s);
           const targets =
             selected.length > 1 && selected.includes(id) && keys.every((k) => FANOUT_KEYS.has(k))
               ? new Set(selected)
               : new Set([id]);
+          // Nothing to do only when every target already has the value: picking
+          // the primary's own colour still brings the others in line.
+          if (
+            keys.length > 0 &&
+            onPage
+              .filter((o) => targets.has(o.id))
+              .every((o) => keys.every((k) => Object.is(o[k], patch[k])))
+          ) {
+            return;
+          }
           let script = s.script;
           if (current.scriptLineId && patch.text != null) {
             script = script.map((l) =>
               l.id === current.scriptLineId ? { ...l, text: patch.text ?? l.text } : l,
             );
           }
-          const apply = (from: Overlay): Overlay => {
-            let merged: Overlay = { ...from, ...patch };
-            // Lettering changed: size the balloon around the words (never the words around the balloon).
-            if (
-              usesMeasuredFit(merged) &&
-              LAYOUT_KEYS.some((k) => k in patch) &&
-              !("w" in patch || "h" in patch)
-            ) {
-              const box = fitLetterBox(
-                merged,
-                pageAspect(s.paperSize),
-                merged.autoFit === false ? "grow" : "auto",
-                from,
-              );
-              if (box) merged = { ...merged, ...box };
-            } else if (usesMeasuredFit(merged) && ("w" in patch || "h" in patch)) {
-              // A box set directly never squeezes the words out.
-              const min = letterMinBox(merged, pageAspect(s.paperSize));
-              if (min) {
-                merged = {
-                  ...merged,
-                  w: Math.max(merged.w, min.minW),
-                  h: Math.max(merged.h, min.minH),
-                };
-              }
-            }
-            return merged;
-          };
+          const apply = (from: Overlay): Overlay => refitPatched(from, patch, pageAspect(s.paperSize));
           const pages = patchPage(s.pages, s.currentPageId, (page) => ({
             ...page,
             overlays: pageOverlays(page).map((o) => (targets.has(o.id) ? apply(o) : o)),
@@ -1721,8 +1798,31 @@ export const useStudio = create<StudioState>()(
                     ? "Resize"
                     : "x" in patch || "y" in patch
                       ? "Move"
-                      : "Format";
+                      : "rotate" in patch
+                        ? "Rotate"
+                        : "tailX" in patch || "tailY" in patch
+                          ? "Move Tail"
+                          : "fontSize" in patch
+                            ? "Resize Type"
+                            : "Format";
           commit({ pages, script }, label);
+        },
+
+        bumpOverlaysFont: (ids, delta) => {
+          const s = get();
+          const want = new Set(ids);
+          let changed = false;
+          const pages = patchPage(s.pages, s.currentPageId, (page) => ({
+            ...page,
+            overlays: pageOverlays(page).map((o) => {
+              if (!want.has(o.id) || o.kind === "sticker" || o.kind === "tone") return o;
+              const fontSize = clamp(o.fontSize + delta, LETTER_FONT_MIN, LETTER_FONT_MAX);
+              if (fontSize === o.fontSize) return o;
+              changed = true;
+              return refitPatched(o, { fontSize }, pageAspect(s.paperSize));
+            }),
+          }));
+          if (changed) commitAs("Resize Type", { pages });
         },
 
         beginLiveEdit: () => {
@@ -1748,18 +1848,19 @@ export const useStudio = create<StudioState>()(
           flushPersist();
         },
 
-        removeOverlay: (id) => {
+        removeOverlay: (id, label = "Delete") => {
           const script = get().script.map((l) =>
             l.overlayId === id ? { ...l, overlayId: null } : l,
           );
-          commitAs("Delete", {
+          const rest = selectionIds(get()).filter((x) => x !== id);
+          commitAs(label, {
             pages: patchPage(get().pages, get().currentPageId, (page) => ({
               ...page,
               overlays: pageOverlays(page).filter((o) => o.id !== id),
             })),
             script,
-            selectedOverlayId:
-              get().selectedOverlayId === id ? null : get().selectedOverlayId,
+            selectedOverlayId: rest[rest.length - 1] ?? null,
+            selectedOverlayIds: rest,
           });
         },
 
@@ -1791,6 +1892,25 @@ export const useStudio = create<StudioState>()(
               get().duplicateOverlay(sid);
               const made = get().selectedOverlayId;
               if (made && made !== sid) copies.push(made);
+            }
+            // Copies of a chained pair chain to each other, never into the
+            // original chain; a lone copy of a chained balloon stands alone.
+            const made = new Set(copies);
+            const after = get();
+            const counts = new Map<string, number>();
+            for (const o of pageOverlays(after.currentPage())) {
+              if (made.has(o.id) && o.chainId) counts.set(o.chainId, (counts.get(o.chainId) ?? 0) + 1);
+            }
+            if (counts.size) {
+              const fresh = new Map([...counts].map(([k, n]) => [k, n >= 2 ? uid("chain") : undefined]));
+              set({
+                pages: patchPage(after.pages, after.currentPageId, (page) => ({
+                  ...page,
+                  overlays: pageOverlays(page).map((o) =>
+                    made.has(o.id) && o.chainId ? { ...o, chainId: fresh.get(o.chainId) } : o,
+                  ),
+                })),
+              });
             }
             get().selectOverlays(copies);
             return;
@@ -1843,69 +1963,126 @@ export const useStudio = create<StudioState>()(
           if (!src) return null;
           // The script line stays named so a cut balloon brings its line back.
           const clip: Overlay = { ...src, chainId: undefined };
-          set({ overlayClipboard: clip });
+          set({ overlayClipboard: clip, overlayClipboardSet: null });
           return clip;
         },
 
         cutOverlay: (id) => {
           const clip = get().copyOverlay(id);
-          if (clip) get().removeOverlay(clip.id);
+          if (clip) get().removeOverlay(clip.id, "Cut");
           return clip;
         },
 
-        pasteOverlay: (payload) => {
+        copyOverlays: (ids) => {
           const s = get();
-          const src = payload ?? s.overlayClipboard;
-          if (!src) return null;
+          const want = new Set(ids);
+          // Chains inside the group ride along; paste gives them fresh ids.
+          const clips = pageOverlays(s.currentPage())
+            .filter((o) => want.has(o.id))
+            .map((o) => ({ ...o }));
+          if (clips.length < 2) {
+            const one = s.copyOverlay(clips[0]?.id ?? null);
+            return one ? [one] : [];
+          }
+          const primary = clips.find((o) => o.id === s.selectedOverlayId) ?? clips[clips.length - 1]!;
+          set({ overlayClipboard: { ...primary, chainId: undefined }, overlayClipboardSet: clips });
+          return clips;
+        },
+
+        cutOverlays: (ids) => {
+          const clips = get().copyOverlays(ids);
+          if (clips.length > 1) get().removeOverlays(clips.map((o) => o.id), "Cut");
+          else if (clips[0]) get().removeOverlay(clips[0].id, "Cut");
+          return clips;
+        },
+
+        pasteOverlay: (payload) => {
+          const made = get().pasteOverlays(payload ? [payload] : null);
+          return made[made.length - 1] ?? null;
+        },
+
+        pasteOverlays: (payload) => {
+          const s = get();
+          const fromApp = !payload?.length;
+          const srcs: Overlay[] = payload?.length
+            ? payload
+            : s.overlayClipboardSet?.length
+              ? s.overlayClipboardSet
+              : s.overlayClipboard
+                ? [s.overlayClipboard]
+                : [];
+          if (!srcs.length) return [];
           const page = s.currentPage();
           const list = pageOverlays(page);
-          // Pasting over the original cascades it, like Keynote; onto another
-          // page it lands where it was.
-          const shift = list.some((o) => o.id === src.id || (o.x === src.x && o.y === src.y)) ? 4 : 0;
-          const copy: Overlay = {
-            ...src,
-            id: uid("ov"),
-            x: clamp(src.x + shift, 0, 100 - src.w),
-            y: clamp(src.y + shift, 0, 100 - src.h),
-            scriptLineId: undefined,
-            chainId: undefined,
-            hidden: false,
-          };
-          // A cut balloon takes its script line back; a copy of a placed
-          // balloon gets its own line, like Duplicate. A line from another
-          // document matches nothing and the copy stays unscripted.
-          let script = s.script;
-          const line = src.scriptLineId
-            ? script.find((l) => l.id === src.scriptLineId)
-            : undefined;
-          if (line && line.overlayId == null) {
-            copy.scriptLineId = line.id;
-            script = script.map((l) =>
-              l.id === line.id ? { ...l, overlayId: copy.id, pageId: page.id, text: copy.text } : l,
-            );
-          } else if (line) {
-            const fresh: ScriptLine = {
-              ...line,
-              id: uid("line"),
-              overlayId: copy.id,
-              pageId: page.id,
-              text: copy.text,
-            };
-            copy.scriptLineId = fresh.id;
-            const at = script.findIndex((l) => l.id === line.id);
-            script = [...script.slice(0, at + 1), fresh, ...script.slice(at + 1)];
+          // Pasting over the originals cascades them, like Keynote; onto another
+          // page they land where they were. A group shifts as one.
+          const over = srcs.some((src) =>
+            list.some((o) => o.id === src.id || (o.x === src.x && o.y === src.y)),
+          );
+          const lo = (k: "x" | "y") => Math.max(...srcs.map((o) => -o[k]));
+          const hi = (k: "x" | "y", d: "w" | "h") => Math.min(...srcs.map((o) => 100 - o[d] - o[k]));
+          const sx = over ? clamp(4, Math.min(0, lo("x")), Math.max(0, hi("x", "w"))) : 0;
+          const sy = over ? clamp(4, Math.min(0, lo("y")), Math.max(0, hi("y", "h"))) : 0;
+          // Chains inside a pasted group become new chains of their own.
+          const counts = new Map<string, number>();
+          if (srcs.length > 1) {
+            for (const o of srcs) if (o.chainId) counts.set(o.chainId, (counts.get(o.chainId) ?? 0) + 1);
           }
+          const chains = new Map([...counts].map(([k, n]) => [k, n >= 2 ? uid("chain") : undefined]));
+          let script = s.script;
+          const copies = srcs.map((src) => {
+            const copy: Overlay = {
+              ...src,
+              id: uid("ov"),
+              x: clamp(src.x + sx, 0, 100 - src.w),
+              y: clamp(src.y + sy, 0, 100 - src.h),
+              scriptLineId: undefined,
+              chainId: src.chainId ? chains.get(src.chainId) : undefined,
+              hidden: false,
+            };
+            // A cut balloon takes its script line back; a copy of a placed
+            // balloon gets its own line, like Duplicate. A line from another
+            // document matches nothing and the copy stays unscripted.
+            const line = src.scriptLineId
+              ? script.find((l) => l.id === src.scriptLineId)
+              : undefined;
+            if (line && line.overlayId == null) {
+              copy.scriptLineId = line.id;
+              script = script.map((l) =>
+                l.id === line.id ? { ...l, overlayId: copy.id, pageId: page.id, text: copy.text } : l,
+              );
+            } else if (line) {
+              const fresh: ScriptLine = {
+                ...line,
+                id: uid("line"),
+                overlayId: copy.id,
+                pageId: page.id,
+                text: copy.text,
+              };
+              copy.scriptLineId = fresh.id;
+              const at = script.findIndex((l) => l.id === line.id);
+              script = [...script.slice(0, at + 1), fresh, ...script.slice(at + 1)];
+            }
+            return copy;
+          });
+          // The next paste cascades on from where this one landed.
+          const moved = srcs.map((src, i) => ({ ...src, x: copies[i]!.x, y: copies[i]!.y }));
+          const primary = copies[copies.length - 1]!;
           commitAs("Paste", {
             pages: patchPage(s.pages, s.currentPageId, (p) => ({
               ...p,
-              overlays: [...list, copy],
+              overlays: [...list, ...copies],
             })),
             script,
-            selectedOverlayId: copy.id,
+            selectedOverlayId: primary.id,
+            selectedOverlayIds: copies.map((o) => o.id),
             selectedPanelId: null,
-            overlayClipboard: payload ? s.overlayClipboard : { ...src, x: copy.x, y: copy.y },
+            overlayClipboard: fromApp
+              ? { ...moved[moved.length - 1]!, chainId: undefined }
+              : s.overlayClipboard,
+            overlayClipboardSet: fromApp ? (srcs.length > 1 ? moved : null) : s.overlayClipboardSet,
           });
-          return copy;
+          return copies;
         },
 
         bringForward: (id) => {
@@ -2034,10 +2211,13 @@ export const useStudio = create<StudioState>()(
           const s = get();
           const selected = selectionIds(s);
           const ids = new Set(selected.includes(id) ? selected : [id]);
-          const moves = pageOverlays(s.currentPage())
-            .filter((o) => ids.has(o.id) && !o.locked)
-            .map((o) => ({ id: o.id, x: o.x + dx, y: o.y + dy }));
-          if (moves.length) get().moveOverlays(moves);
+          const movers = pageOverlays(s.currentPage()).filter((o) => ids.has(o.id) && !o.locked);
+          if (!movers.length) return;
+          // The group stops as one at the page edge, keeping its spacing.
+          const cx = clamp(dx, Math.min(0, Math.max(...movers.map((o) => -o.x))), Math.max(0, Math.min(...movers.map((o) => 100 - o.w - o.x))));
+          const cy = clamp(dy, Math.min(0, Math.max(...movers.map((o) => -o.y))), Math.max(0, Math.min(...movers.map((o) => 100 - o.h - o.y))));
+          if (cx === 0 && cy === 0) return;
+          get().moveOverlays(movers.map((o) => ({ id: o.id, x: o.x + cx, y: o.y + cy })));
         },
 
         undo: () => {
@@ -2490,8 +2670,11 @@ export const useStudio = create<StudioState>()(
 );
 
 if (typeof window !== "undefined") {
-  applyTheme(boot.theme === "dark" ? "dark" : "light");
+  // The page colours follow the device at once; this touches only <html>.
+  applyTheme(prefsAtBoot.theme === "dark" ? "dark" : "light");
   useStudio.subscribe((s) => {
+    // Until the prefs are back, the store holds defaults: never write those over them.
+    if (!useStudio.persist.hasHydrated()) return;
     writePrefs({
       theme: s.theme,
       paper: s.paper,

@@ -1,23 +1,35 @@
 const DB_NAME = "koma";
-const DB_VERSION = 2;
+// Stays at 1: a tab still running an older build opens this database at
+// version 1, and any bump would make every save in that tab fail. New data
+// (version history) lives in its own database below.
+const DB_VERSION = 1;
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv");
-      if (!db.objectStoreNames.contains("projects")) {
-        db.createObjectStore("projects", { keyPath: "id" });
-      }
-      // v2: version history, one row per snapshot, looked up by project.
-      if (!db.objectStoreNames.contains("versions")) {
-        const versions = db.createObjectStore("versions", { keyPath: "id" });
-        versions.createIndex("projectId", "projectId", { unique: false });
-      }
+    const open = (version?: number) => {
+      const req = version == null ? indexedDB.open(DB_NAME) : indexedDB.open(DB_NAME, version);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv");
+        if (!db.objectStoreNames.contains("projects")) {
+          db.createObjectStore("projects", { keyPath: "id" });
+        }
+      };
+      req.onsuccess = () => {
+        const db = req.result;
+        db.onversionchange = () => db.close();
+        resolve(db);
+      };
+      req.onerror = () => {
+        // A newer build already raised the version: open it as it is.
+        if (version != null && req.error?.name === "VersionError") {
+          open();
+          return;
+        }
+        reject(req.error);
+      };
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    open(DB_VERSION);
   });
 }
 
@@ -25,6 +37,14 @@ function reqTo<T>(req: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
+  });
+}
+
+function done(tx: IDBTransaction) {
+  return new Promise<void>((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error("Write failed"));
+    tx.onabort = () => reject(tx.error ?? new DOMException("Write aborted", "AbortError"));
   });
 }
 
@@ -60,10 +80,8 @@ export async function idbPutProject(record: unknown) {
   try {
     const tx = db.transaction("projects", "readwrite");
     tx.objectStore("projects").put(record);
-    await new Promise<void>((resolve, reject) => {
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
+    // A full disk aborts the transaction (no error event): reject, never hang.
+    await done(tx);
   } finally {
     db.close();
   }
@@ -99,72 +117,6 @@ export async function idbDeleteProject(id: string) {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-  } finally {
-    db.close();
-  }
-}
-
-function done(tx: IDBTransaction) {
-  return new Promise<void>((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
-  });
-}
-
-export async function idbPutVersion(record: unknown) {
-  const db = await openDb();
-  try {
-    const tx = db.transaction("versions", "readwrite");
-    tx.objectStore("versions").put(record);
-    await done(tx);
-  } finally {
-    db.close();
-  }
-}
-
-export async function idbGetVersion<T>(id: string): Promise<T | undefined> {
-  const db = await openDb();
-  try {
-    const tx = db.transaction("versions", "readonly");
-    return (await reqTo(tx.objectStore("versions").get(id))) as T | undefined;
-  } finally {
-    db.close();
-  }
-}
-
-export async function idbVersionsFor<T>(projectId: string): Promise<T[]> {
-  const db = await openDb();
-  try {
-    const tx = db.transaction("versions", "readonly");
-    const rows = await reqTo(tx.objectStore("versions").index("projectId").getAll(projectId));
-    return (rows ?? []) as T[];
-  } finally {
-    db.close();
-  }
-}
-
-export async function idbDeleteVersions(ids: string[]) {
-  if (ids.length === 0) return;
-  const db = await openDb();
-  try {
-    const tx = db.transaction("versions", "readwrite");
-    const store = tx.objectStore("versions");
-    for (const id of ids) store.delete(id);
-    await done(tx);
-  } finally {
-    db.close();
-  }
-}
-
-export async function idbDeleteVersionsFor(projectId: string) {
-  const db = await openDb();
-  try {
-    const tx = db.transaction("versions", "readwrite");
-    const store = tx.objectStore("versions");
-    const keys = await reqTo(store.index("projectId").getAllKeys(projectId));
-    for (const key of keys ?? []) store.delete(key);
-    await done(tx);
   } finally {
     db.close();
   }

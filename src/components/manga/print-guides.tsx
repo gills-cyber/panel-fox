@@ -16,7 +16,8 @@ export function pageUnit(spec: Spec): string {
 
 /**
  * Rules every `gridStep` units, a heavier one every fifth; a sheet-sized layer
- * under the balloons that takes no pointer events.
+ * over the panels and under the balloons (z 78, below the chain layer at 79
+ * and the balloons at 80 and up) that takes no pointer events.
  */
 export function PageGrid({ spec }: { spec: Spec }) {
   const step = gridStep(spec);
@@ -24,7 +25,7 @@ export function PageGrid({ spec }: { spec: Spec }) {
   const cy = (step / spec.h) * 100;
   return (
     <div
-      className="koma-grid pointer-events-none absolute inset-0 z-[115]"
+      className="koma-grid pointer-events-none absolute inset-0 z-[78]"
       data-koma="page-grid"
       data-step={step}
       aria-hidden

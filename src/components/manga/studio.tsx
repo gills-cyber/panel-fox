@@ -140,6 +140,7 @@ import {
   duplicateNamedProject,
   renameNamedProject,
   switchToProject,
+  requestSave,
 } from "@/lib/manga/project";
 import { saveVersionNow } from "@/lib/manga/versions";
 import { VersionsDialog } from "@/components/manga/versions-dialog";
@@ -174,11 +175,36 @@ type Menu = "layout" | "zoom" | "media" | "stickers" | "title" | null;
 type InspectorTab = "format" | "document" | "script";
 type StickerTab = "manga" | "clinic" | "logos";
 
+/** The inspector's Remove: the whole multi-selection when the balloon is part of one. */
+function removeFromInspector(id: string) {
+  const s = useStudio.getState();
+  const ids = selectionIds(s);
+  if (ids.length > 1 && ids.includes(id)) s.removeOverlays(ids);
+  else s.removeOverlay(id);
+}
+
 /** ⌥⌘S and File ▸ Save a Version: keep this moment, and say so. */
 function saveVersionAndSay() {
+  // A document that was never saved gets its name first, in the Save sheet.
+  if (!useStudio.getState().projectId) {
+    requestSave();
+    return;
+  }
   void saveVersionNow()
     .then(({ record }) => toast.success(`Saved a version of “${record.name}”`))
-    .catch(() => toast.error("Couldn’t save a version"));
+    .catch(saveFailed);
+}
+
+/** A save that could not be written says why, instead of failing quietly. */
+function saveFailed(err: unknown) {
+  const full = err instanceof DOMException && err.name === "QuotaExceededError";
+  toast.error(
+    full
+      ? "Couldn’t save: this device is out of space for PanelFox. Delete old versions or projects, or download the project file."
+      : "Couldn’t save this manga. Try again, or download the project file.",
+    // ⌘S and autosave failing together say it once.
+    { id: "save-failed" },
+  );
 }
 
 export function Studio() {
@@ -286,9 +312,9 @@ export function Studio() {
       save: () => {
         const s = useStudio.getState();
         if (s.projectId) {
-          void saveNamedProject().then((record) =>
-            toast.success(`Saved “${record.name}”`),
-          );
+          void saveNamedProject()
+            .then((record) => toast.success(`Saved “${record.name}”`))
+            .catch(saveFailed);
           return;
         }
         setSaveAsCopy(false);
@@ -315,6 +341,8 @@ export function Studio() {
         state.border === prev.border &&
         state.paper === prev.paper &&
         state.paperSize === prev.paperSize &&
+        state.bleed === prev.bleed &&
+        state.handInk === prev.handInk &&
         state.rtl === prev.rtl &&
         state.showNumbers === prev.showNumbers &&
         state.projectName === prev.projectName &&
@@ -348,10 +376,18 @@ export function Studio() {
             prefersReducedMotion() ? 1200 : 1500,
           );
         }
-      } catch {
+      } catch (err) {
         dirty = true;
+        // Say so once per failing stretch, not on every retry.
+        if (!autosaveWarned) {
+          autosaveWarned = true;
+          saveFailed(err);
+        }
+        return;
       }
+      autosaveWarned = false;
     }
+    let autosaveWarned = false;
     const tick = window.setInterval(() => {
       void flush();
     }, AUTOSAVE_MS);
@@ -406,8 +442,8 @@ export function Studio() {
         const html = e.clipboardData?.getData("text/html") ?? "";
         const fromClip = parseOverlayClipboard(text, html);
         if (!fromClip && text.trim()) return;
-        const pasted = useStudio.getState().pasteOverlay(fromClip);
-        if (pasted) e.preventDefault();
+        const pasted = useStudio.getState().pasteOverlays(fromClip);
+        if (pasted.length) e.preventDefault();
         return;
       }
       e.preventDefault();
@@ -868,9 +904,9 @@ export function Studio() {
   function handleSave() {
     const s = useStudio.getState();
     if (s.projectId) {
-      void saveNamedProject().then((record) =>
-        toast.success(`Saved “${record.name}”`),
-      );
+      void saveNamedProject()
+        .then((record) => toast.success(`Saved “${record.name}”`))
+        .catch(saveFailed);
       return;
     }
     setSaveAsCopy(false);
@@ -2821,6 +2857,7 @@ function Inspector({
               }
             />
           </Field>
+          {paperSize === "webtoon" ? null : (
           <Field
             label="Bleed"
             value={
@@ -2839,6 +2876,7 @@ function Inspector({
               }
             />
           </Field>
+          )}
           <div>
             <p className="mb-2 text-[11px] font-medium text-muted">Page size</p>
             <div className="flex flex-wrap gap-1">
@@ -3307,7 +3345,7 @@ function OverlayEditor({ overlay }: { overlay: Overlay }) {
           variant="outline"
           size="sm"
           className="w-full"
-          onClick={() => useStudio.getState().removeOverlay(overlay.id)}
+          onClick={() => removeFromInspector(overlay.id)}
         >
           Remove
         </Button>
@@ -3519,7 +3557,7 @@ function OverlayEditor({ overlay }: { overlay: Overlay }) {
         variant="outline"
         size="sm"
         className="w-full"
-        onClick={() => useStudio.getState().removeOverlay(overlay.id)}
+        onClick={() => removeFromInspector(overlay.id)}
       >
         Remove
       </Button>

@@ -15,6 +15,7 @@ import {
   restoreVersionAsCopy,
   saveVersionNow,
   versionTime,
+  VERSIONS_EVENT,
   type VersionMeta,
 } from "@/lib/manga/versions";
 import { cn } from "@/lib/utils";
@@ -34,9 +35,16 @@ export function VersionsDialog({ open, onClose }: { open: boolean; onClose: () =
   const [rename, setRename] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const selRef = useRef<string | null>(null);
+  selRef.current = selectedId;
 
-  async function refresh(keep?: string | null) {
+  /**
+   * Reload the list. `keep` is the row to select afterwards, unless the user
+   * picked another row while the list was loading: their pick wins.
+   */
+  async function refresh(keep?: string | null, startSel: string | null = selRef.current) {
     if (!projectId) {
       setRows([]);
       setLoaded(true);
@@ -45,10 +53,11 @@ export function VersionsDialog({ open, onClose }: { open: boolean; onClose: () =
     const next = await listVersions(projectId);
     setRows(next);
     setLoaded(true);
-    setSelectedId((cur) => {
-      const want = keep ?? cur;
-      return want && next.some((v) => v.id === want) ? want : (next[0]?.id ?? null);
-    });
+    const cur = selRef.current;
+    const want = cur !== startSel ? cur : (keep ?? cur);
+    const pick = want && next.some((v) => v.id === want) ? want : (next[0]?.id ?? null);
+    if (pick !== cur) setConfirmDelete(false);
+    setSelectedId(pick);
   }
 
   useEffect(() => {
@@ -56,9 +65,31 @@ export function VersionsDialog({ open, onClose }: { open: boolean; onClose: () =
       setRenameId(null);
       setConfirmDelete(false);
       setLoaded(false);
+      // Each time the sheet opens it starts at the newest version.
+      setSelectedId(null);
+      selRef.current = null;
       return;
     }
     void refresh(null);
+    // A save made while the sheet is open (its own Save button, autosave)
+    // shows up as soon as its version is written.
+    const onChange = (e: Event) => {
+      const id = (e as CustomEvent<{ projectId?: string }>).detail?.projectId;
+      if (!id || id === useStudio.getState().projectId) void refresh(null);
+    };
+    window.addEventListener(VERSIONS_EVENT, onChange);
+    // A sheet opened from this one (Save) hands focus to nobody when it
+    // closes; bring it back to the list so ↑↓ and Return keep working.
+    const watch = new MutationObserver(() => {
+      if (document.activeElement && document.activeElement !== document.body) return;
+      const row = listRef.current?.querySelector<HTMLElement>("[aria-selected='true']");
+      (row ?? listRef.current)?.focus();
+    });
+    watch.observe(document.body, { childList: true });
+    return () => {
+      window.removeEventListener(VERSIONS_EVENT, onChange);
+      watch.disconnect();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, projectId]);
 
@@ -67,15 +98,19 @@ export function VersionsDialog({ open, onClose }: { open: boolean; onClose: () =
   // The list arrives after the sheet opens: once it is in, the chosen row
   // takes focus so ↑↓ and Return work straight away; arrow moves carry focus.
   useEffect(() => {
-    if (!open || !loaded || renameId !== null) return;
+    if (!open || !loaded || renameId !== null || confirmDelete) return;
     const list = listRef.current;
     if (!list) return;
     const active = document.activeElement;
+    const sheet = list.closest<HTMLElement>("[data-koma-dialog='versions']");
     const inList = active instanceof HTMLElement && list.contains(active);
-    const inSheet = active instanceof HTMLElement && active.closest("[data-koma-dialog='versions']");
-    if (!inList && inSheet && active !== list) return;
+    // Focus left on a control the user chose (the header button, a footer
+    // button) stays there; focus that fell to the sheet itself or the page
+    // (a button that unmounted, a nested sheet that closed) comes back.
+    const adrift = !active || active === document.body || active === sheet || active === list;
+    if (!inList && !adrift) return;
     list.querySelector<HTMLElement>("[aria-selected='true']")?.focus();
-  }, [open, loaded, selectedId, renameId]);
+  }, [open, loaded, selectedId, renameId, confirmDelete, rows]);
 
   function move(delta: number) {
     if (rows.length === 0) return;
@@ -90,28 +125,37 @@ export function VersionsDialog({ open, onClose }: { open: boolean; onClose: () =
   }
 
   async function guard<T>(work: () => Promise<T>, fail: string): Promise<T | null> {
+    // One action at a time: a second Return or click while one runs is ignored.
+    if (busyRef.current) return null;
+    busyRef.current = true;
     setBusy(true);
     try {
       return await work();
     } catch (e) {
-      toast.error(e instanceof Error && e.message ? e.message : fail);
+      const full = e instanceof DOMException && e.name === "QuotaExceededError";
+      toast.error(full ? `${fail}: this device is out of space for PanelFox` : e instanceof Error && e.message ? e.message : fail);
       return null;
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
 
   async function restore() {
-    if (!selected) return;
-    const v = await guard(() => restoreVersion(selected.id), "Couldn’t restore that version");
-    if (!v) return;
+    if (!selected || busyRef.current) return;
+    const r = await guard(() => restoreVersion(selected.id), "Couldn’t restore that version");
+    if (!r) return;
     useStudio.getState().setReadMode(false);
-    toast.success(`Restored the version from ${versionTime(v.savedAt)}. The state it replaced is kept as “Before restore”.`);
+    toast.success(
+      r.saved
+        ? `Restored the version from ${versionTime(r.version.savedAt)}. The state it replaced is kept as “Before restore”.`
+        : `Restored the version from ${versionTime(r.version.savedAt)}. It isn’t saved yet; PanelFox will keep trying.`,
+    );
     onClose();
   }
 
   async function restoreCopy() {
-    if (!selected) return;
+    if (!selected || busyRef.current) return;
     const copy = await guard(() => restoreVersionAsCopy(selected.id), "Couldn’t restore a copy");
     if (!copy) return;
     useStudio.getState().setReadMode(false);
@@ -139,9 +183,11 @@ export function VersionsDialog({ open, onClose }: { open: boolean; onClose: () =
   async function commitRename() {
     if (!renameId) return;
     const id = renameId;
+    // A row clicked while the name is being written wins over the renamed one.
+    const startSel = selRef.current;
     setRenameId(null);
     await guard(() => renameVersion(id, rename), "Couldn’t name that version");
-    await refresh(id);
+    await refresh(id, startSel);
   }
 
   return (
@@ -213,7 +259,7 @@ export function VersionsDialog({ open, onClose }: { open: boolean; onClose: () =
               move(-1);
             } else if (e.key === "Enter" && selected) {
               e.preventDefault();
-              void restore();
+              if (!e.repeat) void restore();
             }
           }}
         >

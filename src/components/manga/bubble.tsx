@@ -189,11 +189,17 @@ function BubbleInner({
     pointerId: number;
     moved: boolean;
     /** The other selected balloons, where they started: they move along. */
-    group: { id: string; x: number; y: number }[];
+    group: { id: string; x: number; y: number; w: number; h: number }[];
     /** A plain click on a member of a multi-selection collapses it to that balloon. */
     collapse: boolean;
+    /** ⌘-press: a click toggles the balloon in the selection, a drag moves it without snapping. */
+    toggleOnUp: boolean;
+    /** ⌘-drag of a balloon outside the selection selects it once the drag starts. */
+    selectOnMove: boolean;
   } | null>(null);
-  const groupMoved = useRef(false);
+  /** A move or scale streamed through the store for the whole selection, and its step name. */
+  const groupMoved = useRef<string | false>(false);
+  const wheelLabel = useRef("Resize Type");
   const overlayRef = useRef(overlay);
   overlayRef.current = overlay;
   const liveDragRef = useRef(liveDrag);
@@ -278,7 +284,7 @@ function BubbleInner({
       studio.endLiveEdit(true, label);
     } else if (groupMoved.current) {
       // The group moved through the store; record it as one step.
-      studio.endLiveEdit(true, "Move");
+      studio.endLiveEdit(true, groupMoved.current);
     } else {
       studio.endLiveEdit(false);
     }
@@ -361,22 +367,51 @@ function BubbleInner({
    * so the whole studio is not re-rendered per tick. The draft is committed as
    * one history step once the input goes quiet.
    */
-  function nudgeLive(patch: Partial<Overlay>) {
+  function nudgeLive(patch: Partial<Overlay> | null, label: string) {
     if (!liveDragRef.current) {
       liveDragRef.current = true;
       setLiveDrag(true);
       useStudio.getState().beginLiveEdit();
     }
-    applyDraft(patch);
+    wheelLabel.current = label;
+    if (patch) applyDraft(patch);
     if (wheelQuiet.current != null) window.clearTimeout(wheelQuiet.current);
     wheelQuiet.current = window.setTimeout(() => {
       wheelQuiet.current = null;
-      flushDraft("Resize Type");
+      flushDraft(wheelLabel.current);
       setLiveDrag(false);
     }, 220);
   }
 
+  /** The other balloons of a multi-selection this one belongs to, or none. */
+  function selectionWithMe() {
+    const ids = selectionIds(useStudio.getState());
+    return ids.length > 1 && ids.includes(overlay.id) ? ids : null;
+  }
+
+  /** ⌘-wheel or ⌘= / ⌘- on a multi-selection scales every balloon in it. */
+  function scaleGroup(factor: number, live: boolean) {
+    const ids = selectionWithMe();
+    if (!ids) return false;
+    const studio = useStudio.getState();
+    if (!live) {
+      studio.scaleOverlays(ids, factor);
+      return true;
+    }
+    studio.scaleOverlays(ids, factor, true);
+    groupMoved.current = "Resize";
+    nudgeLive(null, "Resize");
+    return true;
+  }
+
   function bumpFont(delta: number) {
+    const group = selectionWithMe();
+    if (group) {
+      // A multi-selection grows its type together: each balloon steps from
+      // its own size and refits around its own words.
+      useStudio.getState().bumpOverlaysFont(group, delta);
+      return;
+    }
     const cur = liveOverlay();
     const step =
       cur.fontSize <= 16 && Math.abs(delta) > 1 ? Math.sign(delta) : delta;
@@ -389,7 +424,7 @@ function BubbleInner({
       cur.autoFit === false ? "grow" : "auto",
       cur,
     );
-    nudgeLive({ fontSize, ...(box ?? {}) });
+    nudgeLive({ fontSize, ...(box ?? {}) }, "Resize Type");
   }
 
   function pagePct(clientX: number, clientY: number) {
@@ -412,17 +447,25 @@ function BubbleInner({
     if (mode !== "move") e.preventDefault();
     const studio = useStudio.getState();
     const before = selectionIds(studio);
-    const additive = mode === "move" && (e.shiftKey || e.metaKey);
+    const additive = mode === "move" && e.shiftKey;
+    // ⌘ means two things on a Mac: ⌘-click toggles the balloon in the
+    // selection, ⌘-drag moves it without snapping. The release decides.
+    const cmdPress = mode === "move" && e.metaKey && !e.shiftKey;
     let collapse = false;
+    let toggleOnUp = false;
+    let selectOnMove = false;
     // A ⇧-click would extend the document's text selection across the page,
     // and dragging selected text starts a native drag that cancels ours.
-    if (additive) e.preventDefault();
+    if (additive || cmdPress) e.preventDefault();
     window.getSelection()?.removeAllRanges();
-    if (additive) {
+    if (additive || (cmdPress && overlay.locked)) {
       // ⇧-click adds the balloon to the selection, or takes it out again;
       // a balloon taken out is not dragged.
       studio.toggleOverlaySelection(overlay.id);
       if (!selectionIds(useStudio.getState()).includes(overlay.id)) return;
+    } else if (cmdPress) {
+      toggleOnUp = true;
+      selectOnMove = !before.includes(overlay.id);
     } else if (!before.includes(overlay.id) || mode !== "move") {
       studio.selectOverlay(overlay.id);
     } else {
@@ -430,6 +473,8 @@ function BubbleInner({
     }
     if (overlay.locked && mode !== "move") return;
     if (overlay.locked) {
+      // A locked balloon never drags, so a plain click collapses at once.
+      if (collapse) studio.selectOverlay(overlay.id);
       cancelHold();
       holdFrom.current = { x: e.clientX, y: e.clientY };
       hold.current = window.setTimeout(() => {
@@ -467,12 +512,12 @@ function BubbleInner({
       }, 520);
     }
     if (mode === "tail") setHideBar(true);
-    const members = mode === "move" ? selectionIds(useStudio.getState()) : [];
+    const members = mode === "move" && !selectOnMove ? selectionIds(useStudio.getState()) : [];
     const group =
       members.length > 1
         ? pageOverlays(useStudio.getState().currentPage())
             .filter((o) => o.id !== overlay.id && members.includes(o.id) && !o.locked)
-            .map((o) => ({ id: o.id, x: o.x, y: o.y }))
+            .map((o) => ({ id: o.id, x: o.x, y: o.y, w: o.w, h: o.h }))
         : [];
     drag.current = {
       x: e.clientX,
@@ -484,6 +529,8 @@ function BubbleInner({
       moved: false,
       group,
       collapse,
+      toggleOnUp,
+      selectOnMove,
     };
     try {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -563,6 +610,10 @@ function BubbleInner({
     if (Math.abs(dx) + Math.abs(dy) < slop && !d.moved) return;
     d.moved = true;
     cancelHold();
+    if (d.selectOnMove) {
+      d.selectOnMove = false;
+      useStudio.getState().selectOverlay(overlay.id);
+    }
     if (d.mode === "move") {
       const next = moveOverlay(d.start, dx, dy);
       const studio = useStudio.getState();
@@ -574,12 +625,22 @@ function BubbleInner({
           applyDraft(to);
           return;
         }
-        const ddx = to.x - d.start.x;
-        const ddy = to.y - d.start.y;
-        groupMoved.current = true;
+        // The group stops as one at the page edge, keeping its spacing.
+        const all = [d.start, ...d.group];
+        const ddx = clamp(
+          to.x - d.start.x,
+          Math.min(0, Math.max(...all.map((g) => -g.x))),
+          Math.max(0, Math.min(...all.map((g) => 100 - g.w - g.x))),
+        );
+        const ddy = clamp(
+          to.y - d.start.y,
+          Math.min(0, Math.max(...all.map((g) => -g.y))),
+          Math.max(0, Math.min(...all.map((g) => 100 - g.h - g.y))),
+        );
+        groupMoved.current = "Move";
         studio.moveOverlays(
           [
-            { id: overlay.id, x: to.x, y: to.y },
+            { id: overlay.id, x: d.start.x + ddx, y: d.start.y + ddy },
             ...d.group.map((g) => ({ id: g.id, x: g.x + ddx, y: g.y + ddy })),
           ],
           true,
@@ -670,19 +731,32 @@ function BubbleInner({
       if (drag.current.collapse && !drag.current.moved) {
         useStudio.getState().selectOverlay(overlay.id);
       }
+      if (drag.current.toggleOnUp && !drag.current.moved) {
+        useStudio.getState().toggleOverlaySelection(overlay.id);
+      }
+      // A tail dropped on another balloon chains the two: one step, named for that.
+      let chainTo: string | null = null;
+      if (mode === "tail") {
+        const page = useStudio.getState().currentPage();
+        const live = liveOverlay();
+        const tip = tailPagePoint(live);
+        const hit = overlayAtPoint(pageOverlays(page), tip.x, tip.y, overlay.id);
+        if (hit && isDialogue(hit.kind) && isDialogue(live.kind)) chainTo = hit.id;
+      }
       flushDraft(
-        mode === "move" ? "Move" : mode === "resize" ? "Resize" : mode === "tail" ? "Move Tail" : "Rotate",
+        chainTo
+          ? "Chain Balloons"
+          : mode === "move"
+            ? "Move"
+            : mode === "resize"
+              ? "Resize"
+              : mode === "tail"
+                ? "Move Tail"
+                : "Rotate",
       );
       if (mode === "tail") {
         setHideBar(false);
-        const studio = useStudio.getState();
-        const page = studio.currentPage();
-        const live = pageOverlays(page).find((x) => x.id === overlay.id) ?? overlay;
-        const tip = tailPagePoint(live);
-        const hit = overlayAtPoint(pageOverlays(page), tip.x, tip.y, overlay.id);
-        if (hit && isDialogue(hit.kind) && isDialogue(live.kind)) {
-          studio.joinOverlays(live.id, hit.id);
-        }
+        if (chainTo) useStudio.getState().joinOverlays(overlay.id, chainTo);
       }
       drag.current = null;
       setLiveDrag(false);
@@ -834,13 +908,17 @@ function BubbleInner({
           if (e.key === "-" || e.key === "_") {
             e.preventDefault();
             e.stopPropagation();
-            useStudio.getState().updateOverlay(overlay.id, scaleOverlayBy(overlay, 0.7));
+            if (!scaleGroup(0.7, false)) {
+              useStudio.getState().updateOverlay(overlay.id, scaleOverlayBy(overlay, 0.7));
+            }
             return;
           }
           if (e.key === "=" || e.key === "+") {
             e.preventDefault();
             e.stopPropagation();
-            useStudio.getState().updateOverlay(overlay.id, scaleOverlayBy(overlay, 1.4));
+            if (!scaleGroup(1.4, false)) {
+              useStudio.getState().updateOverlay(overlay.id, scaleOverlayBy(overlay, 1.4));
+            }
             return;
           }
         }
@@ -854,16 +932,17 @@ function BubbleInner({
           e.preventDefault();
           e.stopPropagation();
           const factor = e.deltaY < 0 ? 1.12 : 0.88;
-          nudgeLive(scaleOverlayBy(liveOverlay(), factor));
+          if (!scaleGroup(factor, true)) nudgeLive(scaleOverlayBy(liveOverlay(), factor), "Resize");
           return;
         }
         if (canRotate(overlay.kind)) {
           e.preventDefault();
           e.stopPropagation();
           const step = e.shiftKey ? 1 : 5;
-          nudgeLive({
-            rotate: wrapDeg((liveOverlay().rotate ?? 0) + (e.deltaY < 0 ? -step : step)),
-          });
+          nudgeLive(
+            { rotate: wrapDeg((liveOverlay().rotate ?? 0) + (e.deltaY < 0 ? -step : step)) },
+            "Rotate",
+          );
           return;
         }
         e.preventDefault();

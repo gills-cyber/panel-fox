@@ -1,12 +1,5 @@
 import { uid } from "@/lib/utils";
-import {
-  idbDeleteVersions,
-  idbDeleteVersionsFor,
-  idbGetVersion,
-  idbPutProject,
-  idbPutVersion,
-  idbVersionsFor,
-} from "./idb";
+import { idbPutProject } from "./idb";
 import type { PageState } from "./types";
 import { useStudio } from "./store";
 import {
@@ -17,12 +10,23 @@ import {
   type ProjectDoc,
   type ProjectRecord,
 } from "./project";
+import {
+  deleteVersionRows,
+  externalize,
+  getVersionRow,
+  internalize,
+  putVersionRow,
+  storageRoom,
+  updateVersionRow,
+  versionRowsFor,
+} from "./versions-db";
 
 /**
  * Version history, the way an NSDocument keeps versions: a snapshot of the
  * whole document on every Save, on autosave a few minutes apart, on demand
- * ("Save a Version"), and of the state a restore replaces. Versions live in
- * IndexedDB beside the projects and never leave the device.
+ * ("Save a Version"), and of the state a restore replaces. Versions live on
+ * the device in their own IndexedDB database; pictures are stored once and
+ * shared by every version that uses them.
  */
 
 export type VersionKind = "auto" | "save" | "named" | "restore";
@@ -37,16 +41,25 @@ export type VersionRecord = {
   /** The project's name at the time. */
   name: string;
   pages: number;
+  /** The document, with pictures replaced by references into the asset store. */
   doc: ProjectDoc;
+  /** The pictures the document refers to (content hashes). */
+  assets: string[];
 };
 
-export type VersionMeta = Omit<VersionRecord, "doc"> & { preview?: PageState };
+export type VersionMeta = Omit<VersionRecord, "doc" | "assets"> & { preview?: PageState };
 
 /** Autosaves this close together fold into one version. */
 export const VERSION_GAP_MS = 5 * 60_000;
-/** Automatic versions kept per project, newest first; named ones are kept until deleted. */
+/** Automatic versions (autosave and Save) kept per project, newest first. */
 export const VERSION_KEEP_AUTO = 50;
-const VERSION_KEEP_ALL = 120;
+/** "Before restore" points kept per project. Named versions are kept until deleted. */
+export const VERSION_KEEP_RESTORE = 20;
+/** Headroom kept on the device beyond what the next save of the project needs. */
+const ROOM_MARGIN = 4 * 1024 * 1024;
+
+/** Fired on window after the history of a project changed. */
+export const VERSIONS_EVENT = "koma:versions";
 
 const lastStampByProject = new Map<string, number>();
 const lastDocByProject = new Map<string, ProjectDoc>();
@@ -87,10 +100,15 @@ export function kindLabel(v: Pick<VersionRecord, "kind" | "label">) {
   }
 }
 
+function announce(projectId: string) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(VERSIONS_EVENT, { detail: { projectId } }));
+}
+
 async function latestStamp(projectId: string) {
   const known = lastStampByProject.get(projectId);
   if (known != null) return known;
-  const rows = await idbVersionsFor<VersionRecord>(projectId);
+  const rows = await versionRowsFor<VersionRecord>(projectId);
   const latest = rows.reduce((m, r) => Math.max(m, r.savedAt), 0);
   lastStampByProject.set(projectId, latest);
   return latest;
@@ -101,26 +119,31 @@ export function markVersioned(record: ProjectRecord) {
   lastDocByProject.set(record.id, record.doc);
 }
 
-async function prune(projectId: string) {
-  const rows = (await idbVersionsFor<VersionRecord>(projectId)).sort((a, b) => b.savedAt - a.savedAt);
+/** Drop the oldest automatic versions and restore points past their caps; named ones stay. */
+async function prune(projectId: string, extraAutos = 0) {
+  const rows = (await versionRowsFor<VersionRecord>(projectId)).sort((a, b) => b.savedAt - a.savedAt);
   const drop: string[] = [];
   let autos = 0;
-  rows.forEach((r, i) => {
-    if (i >= VERSION_KEEP_ALL) {
-      drop.push(r.id);
-      return;
+  let restores = 0;
+  for (const r of rows) {
+    if (r.kind === "named") continue;
+    if (r.kind === "restore") {
+      restores += 1;
+      if (restores > VERSION_KEEP_RESTORE) drop.push(r.id);
+      continue;
     }
-    if (r.kind === "named" || r.kind === "restore") return;
     autos += 1;
-    if (autos > VERSION_KEEP_AUTO) drop.push(r.id);
-  });
-  await idbDeleteVersions(drop);
+    if (autos > VERSION_KEEP_AUTO - extraAutos) drop.push(r.id);
+  }
+  if (drop.length) await deleteVersionRows({ ids: drop });
+  return drop.length;
 }
 
 /**
  * Keep a version of a just-written project record. Automatic kinds are
- * throttled and skipped when nothing changed; "named" and "restore" always
- * land. Resolves to the version, or null when none was kept.
+ * throttled, skipped when nothing changed, and skipped when the device is
+ * nearly full; "named" and "restore" always try. Resolves to the version, or
+ * null when none was kept.
  */
 export async function recordVersion(
   record: ProjectRecord,
@@ -128,10 +151,29 @@ export async function recordVersion(
   label?: string,
 ): Promise<VersionRecord | null> {
   const prev = lastDocByProject.get(record.id);
-  if ((kind === "auto" || kind === "save") && prev && sameDoc(prev, record.doc)) return null;
+  const automatic = kind === "auto" || kind === "save";
+  if (automatic && prev && sameDoc(prev, record.doc)) return null;
   if (kind === "auto") {
     const stamp = await latestStamp(record.id);
     if (record.updatedAt - stamp < VERSION_GAP_MS) return null;
+  }
+  const { body, hashes, all, freshBytes } = await externalize(record.doc);
+  const json = JSON.stringify(body).length;
+  if (automatic) {
+    // Near the quota, an automatic version first makes room by letting the
+    // oldest automatic ones go; if that is not enough it is skipped (the
+    // project itself is already saved). The room kept covers this version
+    // plus one more save of the whole project.
+    let room = await storageRoom();
+    const whole = json + all.reduce((n, a) => n + a.size, 0);
+    const need = freshBytes + json + whole + ROOM_MARGIN;
+    if (room != null && room < need) {
+      for (let cut = 10; cut <= VERSION_KEEP_AUTO && room != null && room < need; cut += 10) {
+        if (!(await prune(record.id, cut))) break;
+        room = await storageRoom();
+      }
+      if (room != null && room < need) return null;
+    }
   }
   const version: VersionRecord = {
     id: uid("ver"),
@@ -141,23 +183,32 @@ export async function recordVersion(
     label: label?.trim() || undefined,
     name: record.name,
     pages: record.doc.pages.length,
-    doc: record.doc,
+    doc: body,
+    assets: hashes,
   };
-  await idbPutVersion(version);
+  await putVersionRow(version, all);
   lastStampByProject.set(record.id, version.savedAt);
   lastDocByProject.set(record.id, record.doc);
-  void prune(record.id).catch(() => {});
-  return version;
+  void prune(record.id)
+    .catch(() => 0)
+    .finally(() => announce(record.id));
+  return { ...version, doc: record.doc };
 }
 
 export async function listVersions(projectId: string): Promise<VersionMeta[]> {
-  const rows = await idbVersionsFor<VersionRecord>(projectId);
-  return rows
-    .map(({ doc, ...meta }) => ({
-      ...meta,
-      preview: doc?.pages?.find((p) => p.id === doc.currentPageId) ?? doc?.pages?.[0],
-    }))
-    .sort((a, b) => b.savedAt - a.savedAt);
+  const rows = (await versionRowsFor<VersionRecord>(projectId)).sort((a, b) => b.savedAt - a.savedAt);
+  return Promise.all(
+    rows.map(async ({ doc, assets: _assets, ...meta }) => {
+      const page = doc?.pages?.find((p) => p.id === doc.currentPageId) ?? doc?.pages?.[0];
+      let preview: PageState | undefined;
+      try {
+        preview = page ? await internalize(page) : undefined;
+      } catch {
+        preview = undefined;
+      }
+      return { ...meta, preview };
+    }),
+  );
 }
 
 /** Save the open document and keep this moment as a version, named or not. */
@@ -168,44 +219,55 @@ export async function saveVersionNow(label?: string) {
 }
 
 export async function renameVersion(id: string, label: string) {
-  const v = await idbGetVersion<VersionRecord>(id);
+  const v = await getVersionRow<VersionRecord>(id);
   if (!v) throw new Error("Version not found");
   const next = { ...v, label: label.trim() || undefined };
-  await idbPutVersion(next);
+  await updateVersionRow(next);
   return next;
 }
 
 export async function deleteVersion(id: string) {
-  await idbDeleteVersions([id]);
+  await deleteVersionRows({ ids: [id] });
 }
 
 export async function deleteVersionsFor(projectId: string) {
   lastStampByProject.delete(projectId);
   lastDocByProject.delete(projectId);
-  await idbDeleteVersionsFor(projectId);
+  await deleteVersionRows({ projectId });
+}
+
+async function loadVersion(id: string) {
+  const v = await getVersionRow<VersionRecord>(id);
+  if (!v) throw new Error("Version not found");
+  return { ...v, doc: await internalize(v.doc) };
 }
 
 /**
  * Put the open document back to `id`. The state being replaced is kept first
- * as a "Before restore" version, so a restore is never a one-way door.
+ * as a "Before restore" version, so a restore is never a one-way door; if
+ * that cannot be written, nothing is replaced. `saved` is false when the
+ * restored document could not be written yet (autosave tries again).
  */
 export async function restoreVersion(id: string) {
-  const v = await idbGetVersion<VersionRecord>(id);
-  if (!v) throw new Error("Version not found");
+  const v = await loadVersion(id);
   const s = useStudio.getState();
   if (s.projectId !== v.projectId) throw new Error("That version belongs to another project");
   const before = await saveNamedProject(undefined, false, false);
   await recordVersion(before, "restore", "Before restore");
   s.replaceDocument({ ...v.doc, projectId: v.projectId, projectName: before.name });
-  const after = await saveNamedProject(undefined, false, false);
-  markVersioned(after);
-  return v;
+  let saved = true;
+  try {
+    const after = await saveNamedProject(undefined, false, false);
+    markVersioned(after);
+  } catch {
+    saved = false;
+  }
+  return { version: v, saved };
 }
 
 /** A new project made from a version, opened beside the original, which stays as it is. */
 export async function restoreVersionAsCopy(id: string) {
-  const v = await idbGetVersion<VersionRecord>(id);
-  if (!v) throw new Error("Version not found");
+  const v = await loadVersion(id);
   const when = new Date(v.savedAt).toLocaleString(undefined, {
     month: "short",
     day: "numeric",

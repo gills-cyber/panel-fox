@@ -60,8 +60,9 @@ export function MangaPage({
   const livePage = useCurrentPage();
   const page = pageOverride ?? livePage;
   const paperSize = useStudio((s) => s.paperSize);
-  const bleed = useStudio((s) => s.bleed);
   const hydrated = useHydrated();
+  // The bleed can come from device prefs at boot, which the server cannot see.
+  const bleed = useStudio((s) => s.bleed) * (hydrated ? 1 : 0);
   // Device prefs the server cannot see: only drawn once the page has hydrated.
   const showGuides = useStudio((s) => s.showGuides) && hydrated;
   const showGrid = useStudio((s) => s.showGrid) && hydrated;
@@ -575,8 +576,24 @@ export function MangaPage({
     }
   }
 
+  // Room around the sheet for the print guides at a numeric zoom, so the crop
+  // marks, the bleed and the legend can always be scrolled into view (the
+  // stage itself pads 40 px).
+  let guideRoom: string | undefined;
+  if (live && showGuides && zoom !== "fit" && !fitHost) {
+    const w = 5.6 * zoom;
+    const reach = (w * (Math.max(0, bleed) + 3.6)) / 100;
+    const top = Math.max(reach, (w * Math.max(0, bleed)) / 100 + 17);
+    const side = Math.max(0, Math.ceil(reach + 12 - 40));
+    const head = Math.max(0, Math.ceil(top + 8 - 40));
+    if (side || head) guideRoom = `${head}px ${side}px ${side}px`;
+  }
+
   return (
-    <div className={cn("relative mx-auto w-full max-w-full", fitHost && "grid h-full min-h-0 w-full place-items-center")}>
+    <div
+      className={cn("relative mx-auto w-full max-w-full", fitHost && "grid h-full min-h-0 w-full place-items-center")}
+      style={guideRoom ? { padding: guideRoom } : undefined}
+    >
       <div
         ref={(el) => {
           pageRef.current = el;
@@ -935,7 +952,7 @@ export function MangaPage({
           />
         ) : null}
         {pageOverlays(page)
-          .filter((o) => !o.hidden || selectedOverlayId === o.id)
+          .filter((o) => !o.hidden || selectedOverlayId === o.id || selectedIds.includes(o.id))
           .map((overlay, i) => (
           <Bubble
             key={overlay.id}
