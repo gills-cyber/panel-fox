@@ -90,5 +90,50 @@ if (!html || !isBootable(html)) {
   process.exit(1);
 }
 
+html = await vendorFonts(html);
 writeFileSync(join(dest, "index.html"), html);
 console.log("desktop-web packed", { indexJs, routesJs, styles, htmlBytes: html.length });
+
+/**
+ * The desktop app should open fast and work offline, so the Google Fonts
+ * stylesheet (render-blocking, and unreachable offline) is copied into the
+ * app with its font files. If the fonts cannot be fetched, the page keeps the
+ * online stylesheet as before.
+ */
+async function vendorFonts(page) {
+  const link = page.match(/<link[^>]+href="(https:\/\/fonts\.googleapis\.com\/css2\?[^"]+)"[^>]*>/);
+  if (!link) return page;
+  const href = link[1].replace(/&amp;/g, "&");
+  const agent =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
+  try {
+    const res = await fetch(href, { headers: { "user-agent": agent } });
+    if (!res.ok) throw new Error(`fonts css HTTP ${res.status}`);
+    let css = await res.text();
+    const urls = [...new Set([...css.matchAll(/url\((https:\/\/fonts\.gstatic\.com\/[^)]+)\)/g)].map((m) => m[1]))];
+    const fontDir = join(dest, "fonts");
+    mkdirSync(fontDir, { recursive: true });
+    const names = new Map();
+    let next = 0;
+    const worker = async () => {
+      while (next < urls.length) {
+        const url = urls[next++];
+        const name = url.replace(/^https:\/\/fonts\.gstatic\.com\/s\//, "").replace(/[^a-zA-Z0-9.]+/g, "-");
+        const r = await fetch(url, { headers: { "user-agent": agent } });
+        if (!r.ok) throw new Error(`font HTTP ${r.status}: ${url}`);
+        writeFileSync(join(fontDir, name), Buffer.from(await r.arrayBuffer()));
+        names.set(url, name);
+      }
+    };
+    await Promise.all(Array.from({ length: 8 }, worker));
+    css = css.replace(/url\((https:\/\/fonts\.gstatic\.com\/[^)]+)\)/g, (_, url) => `url(/fonts/${names.get(url)})`);
+    writeFileSync(join(fontDir, "fonts.css"), css);
+    console.log("fonts vendored", { files: urls.length });
+    return page
+      .replace(link[0], '<link rel="stylesheet" href="/fonts/fonts.css"/>')
+      .replace(/<link rel="preconnect" href="https:\/\/fonts\.(googleapis|gstatic)\.com"[^>]*>/g, "");
+  } catch (err) {
+    console.warn("fonts not vendored; the app loads them online", String(err));
+    return page;
+  }
+}

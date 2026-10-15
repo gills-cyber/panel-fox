@@ -187,7 +187,10 @@ async function createWindow(url) {
     minWidth: 900,
     minHeight: 620,
     title: "PanelFox",
-    icon: fileURLToPath(new URL("./icon.png", import.meta.url)),
+    // Packed, the fox icon sits in resources/ (the slimmed app.asar holds only main.mjs).
+    icon: app.isPackaged
+      ? join(process.resourcesPath, "icon.png")
+      : fileURLToPath(new URL("./icon.png", import.meta.url)),
     backgroundColor: dark ? "#1c1c1e" : "#ececee",
     autoHideMenuBar: true,
     show: false,

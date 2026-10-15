@@ -4,6 +4,11 @@ import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import appCss from "../styles.css?url";
 
 const APP_NAME = "PanelFox";
+// The desktop app ships its fonts (scripts/pack-desktop.mjs copies them in),
+// so it opens without waiting on the network and letters correctly offline.
+const DESKTOP_APP = typeof window !== "undefined" && window.location.port === "47821";
+const FONTS_CSS =
+  "https://fonts.googleapis.com/css2?family=Comic+Neue:ital,wght@0,400;0,700;1,400;1,700&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,500&family=Gochi+Hand&family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&family=Karla:ital,wght@0,400;0,700;1,400&family=Lora:ital,wght@0,400;0,600;0,700;1,400&family=M+PLUS+Rounded+1c:wght@400;500;700;800&family=Nunito:ital,wght@0,600;0,700;0,800;1,600;1,700&family=Outfit:wght@400;600;700&family=Permanent+Marker&family=Playfair+Display:ital,wght@0,500;0,700;1,500&family=Quicksand:wght@500;600;700&family=Yomogi&display=swap";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -23,20 +28,21 @@ export const Route = createRootRoute({
       { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
     ],
     links: [
-      { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
+      { rel: "icon", type: "image/png", sizes: "256x256", href: "/icon.png" },
       { rel: "stylesheet", href: appCss },
       { rel: "manifest", href: "/__grok/manifest.webmanifest" },
       { rel: "apple-touch-icon", href: "/__grok/icon-180.png" },
-      { rel: "preconnect", href: "https://fonts.googleapis.com" },
-      {
-        rel: "preconnect",
-        href: "https://fonts.gstatic.com",
-        crossOrigin: "anonymous",
-      },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Comic+Neue:ital,wght@0,400;0,700;1,400;1,700&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,500&family=Gochi+Hand&family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&family=Karla:ital,wght@0,400;0,700;1,400&family=Lora:ital,wght@0,400;0,600;0,700;1,400&family=M+PLUS+Rounded+1c:wght@400;500;700;800&family=Nunito:ital,wght@0,600;0,700;0,800;1,600;1,700&family=Outfit:wght@400;600;700&family=Permanent+Marker&family=Playfair+Display:ital,wght@0,500;0,700;1,500&family=Quicksand:wght@500;600;700&family=Yomogi&display=swap",
-      },
+      ...(DESKTOP_APP
+        ? []
+        : [
+            { rel: "preconnect", href: "https://fonts.googleapis.com" },
+            {
+              rel: "preconnect",
+              href: "https://fonts.gstatic.com",
+              crossOrigin: "anonymous" as const,
+            },
+          ]),
+      { rel: "stylesheet", href: DESKTOP_APP ? "/fonts/fonts.css" : FONTS_CSS },
     ],
   }),
   component: () => (

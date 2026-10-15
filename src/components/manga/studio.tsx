@@ -3079,6 +3079,10 @@ function InsertFold({
   // Folds remember whether you left them open, per browser. Read after mount so
   // server and client render the same closed fold first.
   const [open, setOpen] = useState(false);
+  // The contents mount the first time the fold opens and then stay, so the
+  // close can animate; closed folds cost nothing at startup.
+  const [mounted, setMounted] = useState(false);
+  if (open && !mounted) setMounted(true);
   const restored = useRef(false);
   useEffect(() => {
     try {
@@ -3123,7 +3127,7 @@ function InsertFold({
           className="min-h-0 overflow-hidden"
           inert={!open || undefined}
         >
-          <div className="pb-1 pt-1">{children}</div>
+          {mounted ? <div className="pb-1 pt-1">{children}</div> : null}
         </div>
       </div>
     </div>
