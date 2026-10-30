@@ -705,12 +705,23 @@ export function Bubble({
     setBarBelow(false);
     setBarNudge(0);
   }, [selected, besideBubble]);
+  const [stageScroll, setStageScroll] = useState(0);
+  useEffect(() => {
+    if (!selected) return;
+    const area = barRef.current?.closest("[data-koma='page-stage']");
+    if (!area) return;
+    const onScroll = () => setStageScroll((n) => n + 1);
+    area.addEventListener("scroll", onScroll, { passive: true });
+    return () => area.removeEventListener("scroll", onScroll);
+  }, [selected]);
   useLayoutEffect(() => {
     const bar = barRef.current;
     if (!bar) return;
     const area = bar.closest("[data-koma='page-stage']") ?? document.documentElement;
     const r = bar.getBoundingClientRect();
-    const a = area.getBoundingClientRect();
+    const box = area.getBoundingClientRect();
+    // the visible inside of the page area, without its scrollbar
+    const a = { left: box.left + area.clientLeft, right: box.left + area.clientLeft + area.clientWidth, width: area.clientWidth };
     const left = r.left - barNudge;
     const right = r.right - barNudge;
     const pad = 8;
@@ -727,7 +738,7 @@ export function Bubble({
     if (right > a.right - pad) next = a.right - pad - right;
     if (left + next < a.left + pad) next = a.left + pad - left;
     if (Math.abs(next - barNudge) > 0.5) setBarNudge(next);
-  });
+  }, [barNudge, barMax, besideBubble, barBelow, selected, stageScroll, overlay.x, overlay.y, overlay.w, overlay.h, textEditing]);
   const shownBarStyle: CSSProperties =
     besideBubble && barBelow ? { left: "50%", top: "100%", transform: "translate(-50%, 10px)" } : barStyle;
 
@@ -1019,6 +1030,8 @@ export function Bubble({
       {selected && !hideBar ? (
         <div
           ref={barRef}
+          // the bar pops in with a scale animation; measure again once it has its real size
+          onAnimationEnd={() => setStageScroll((n) => n + 1)}
           className="koma-ov-bar"
           data-koma="letter-bar"
           style={{ ...shownBarStyle, maxWidth: barMax ?? undefined, translate: barNudge ? `${Math.round(barNudge)}px 0` : undefined }}

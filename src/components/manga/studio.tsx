@@ -137,7 +137,9 @@ export function Studio() {
   const pickFor = useRef<string | null>(null);
   const [drawer, setDrawer] = useState<Drawer>(null);
   const [menu, setMenu] = useState<Menu>(null);
-  const [stickerTab, setStickerTab] = useState<StickerTab>("manga");
+  const [stickerTabRaw, setStickerTab] = useState<StickerTab>("manga");
+  const stickerTab: StickerTab =
+    stickerTabRaw === "clinic" && !page.templateId.startsWith("brochure") ? "manga" : stickerTabRaw;
   const [tab, setTab] = useState<InspectorTab>("format");
   const [thumbs, setThumbs] = useState(true);
   const [zoom, setZoom] = useState<PageZoom>("fit");
@@ -598,7 +600,7 @@ export function Studio() {
         onZoomFit={() => setZoom("fit")}
       />
 
-      <header className="koma-glass relative z-40 flex h-14 min-h-14 max-h-14 shrink-0 items-center gap-1 overflow-visible border-b border-line/70 px-2 sm:px-3 md:h-12 md:min-h-12 md:max-h-12 2xl:h-[60px] 2xl:min-h-[60px] 2xl:max-h-[60px]">
+      <header className="koma-glass relative z-[95] flex h-14 min-h-14 max-h-14 shrink-0 items-center gap-1 overflow-visible border-b border-line/70 px-2 sm:px-3 md:h-12 md:min-h-12 md:max-h-12 2xl:h-[60px] 2xl:min-h-[60px] 2xl:max-h-[60px]">
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
           <ToolTipBtn
             label="Page thumbnails"
@@ -1100,7 +1102,7 @@ export function Studio() {
         <main
           ref={stageRef}
           data-koma="page-stage"
-          className="relative isolate min-h-0 flex-1 overflow-auto bg-bg px-4 py-5 sm:px-10 sm:py-10"
+          className="relative min-h-0 flex-1 overflow-auto bg-bg px-4 py-5 sm:px-10 sm:py-10"
         >
           <SpreadView
             onPickFile={openPicker}
@@ -1406,6 +1408,34 @@ function overlayLabel(kind: OverlayKind) {
 
 function insertTitle() {
   useStudio.getState().addOverlay("title");
+}
+
+/** Phones have no room for the page title in the toolbar, so it lives in the Document tab there. */
+function PhonePageTitle() {
+  const raw = useStudio((s) => {
+    const page = s.pages.find((p) => p.id === s.currentPageId) ?? s.pages[0];
+    return page?.title ?? "";
+  });
+  const shown = pageTitle({ title: raw });
+  const [draft, setDraft] = useState(shown === "Untitled" ? "" : shown);
+  useEffect(() => setDraft(shown === "Untitled" ? "" : shown), [shown]);
+  return (
+    <label className="block md:hidden">
+      <span className="mb-1 block text-xs font-medium text-muted">Page title</span>
+      <input
+        value={draft}
+        placeholder="Untitled"
+        aria-label="Page title"
+        data-koma="phone-page-title"
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => useStudio.getState().setPageTitle(draft.trim() || "Untitled")}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        }}
+        className="h-11 w-full rounded-md border border-line bg-paper-white px-2.5 text-[16px] text-ink outline-none ring-accent focus:ring-2"
+      />
+    </label>
+  );
 }
 
 function PageTitle() {
@@ -1988,8 +2018,22 @@ function Inspector({
           {showAll ? (
             <p className="text-xs font-medium text-muted">Document</p>
           ) : null}
+          <PhonePageTitle />
           <BookInspector />
           <ProjectPanel />
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full md:hidden"
+            data-koma="new-brochure"
+            onClick={() => {
+              void startNewBrochure().then((stashed) => {
+                toast.message(stashed.saved ? `Saved “${stashed.name}”. Started a clinic brochure.` : "New clinic brochure");
+              });
+            }}
+          >
+            Start Clinic Brochure
+          </Button>
           {brochure ? (
             <>
           <LogoLibrary

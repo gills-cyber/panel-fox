@@ -786,7 +786,7 @@ export function MakerDialog({ open, onClose }: { open: boolean; onClose: () => v
                     <Row>
                       <div className="flex-1">
                         <p className="text-[13px] text-ink">Images looked at together</p>
-                        <p className="text-[11px] leading-snug text-muted">Faster on a big graphics card. Use 1 if Ollama runs out of memory.</p>
+                        <p className="text-[11px] leading-snug text-muted">Faster on a big graphics card when Ollama allows it (OLLAMA_NUM_PARALLEL). Use 1 if Ollama runs out of memory.</p>
                       </div>
                       <Stepper
                         label="images"
