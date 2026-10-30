@@ -123,10 +123,12 @@ export function OpenProjectDialog({
   onNew,
   onSaveAs,
   onSaveFirst,
+  onMakeChapter,
 }: {
   open: boolean;
   onClose: () => void;
   onOpenFile: () => void;
+  onMakeChapter?: () => void;
   onNew?: () => void;
   onSaveAs?: () => void;
   onSaveFirst?: () => void;
@@ -466,6 +468,11 @@ export function OpenProjectDialog({
             <Button type="button" variant="ghost" size="sm" onClick={onOpenFile}>
               Open File…
             </Button>
+            {onMakeChapter ? (
+              <Button type="button" variant="ghost" size="sm" data-koma="project-make" onClick={onMakeChapter}>
+                New from Images…
+              </Button>
+            ) : null}
           </div>
           <Button type="button" variant="ghost" size="sm" data-koma="project-close" onClick={onClose}>
             Close

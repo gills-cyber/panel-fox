@@ -79,6 +79,7 @@ export function AppMenu({
   onOpen,
   onNew,
   onNewBrochure,
+  onMakeChapter,
   onDownloadProject,
   onScript,
   onRead,
@@ -99,6 +100,7 @@ export function AppMenu({
   onOpen: () => void;
   onNew: () => void;
   onNewBrochure: () => void;
+  onMakeChapter: () => void;
   onDownloadProject: () => void;
   onScript: () => void;
   onRead: () => void;
@@ -165,6 +167,10 @@ export function AppMenu({
         <Item
           label="New Brochure"
           onClick={() => run(onNewBrochure)}
+        />
+        <Item
+          label="New Chapter from Images…"
+          onClick={() => run(onMakeChapter)}
         />
         <Item
           label="Projects…"

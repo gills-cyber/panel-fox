@@ -50,6 +50,21 @@ export async function idbSet(store: string, key: string, value: unknown) {
   }
 }
 
+export async function idbDelete(store: string, key: string) {
+  const db = await openDb();
+  try {
+    const tx = db.transaction(store, "readwrite");
+    tx.objectStore(store).delete(key);
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
 export async function idbPutProject(record: unknown) {
   const db = await openDb();
   try {

@@ -174,6 +174,8 @@ export default defineConfig(({ command, isPreview }) => ({
     strictPort: true,
   },
   resolve: { tsconfigPaths: true },
+  // the Manga Maker runs chapters in a module worker
+  worker: { format: "es" },
   build: {
     sourcemap: false,
     reportCompressedSize: false,
