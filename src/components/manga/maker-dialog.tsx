@@ -27,6 +27,7 @@ import {
   photoFromFile,
   saveSettings,
   startChapter,
+  timingSummary,
   type ChosenImages,
   type MakerCharacter,
   type MakerSettings,
@@ -72,6 +73,20 @@ function Section({ title, caption, children, aside }: { title: string; caption?:
 
 function Row({ children, className }: { children: ReactNode; className?: string }) {
   return <div className={cn("flex min-h-11 items-center gap-3 px-3 py-2 [&+&]:border-t [&+&]:border-line", className)}>{children}</div>;
+}
+
+function Stepper({ value, min, max, onChange, label }: { value: number; min: number; max: number; onChange: (v: number) => void; label: string }) {
+  return (
+    <div className="flex items-center overflow-hidden rounded-[7px] border border-line bg-paper-white [[data-theme=dark]_&]:bg-white/[0.07]">
+      <button type="button" aria-label={`Fewer ${label}`} disabled={value <= min} className="px-2 py-1 text-ink-soft hover:bg-ink/5 disabled:opacity-40" onClick={() => onChange(Math.max(min, value - 1))}>
+        <Minus className="size-3" />
+      </button>
+      <span className="w-7 text-center text-[13px] tabular-nums">{value}</span>
+      <button type="button" aria-label={`More ${label}`} disabled={value >= max} className="px-2 py-1 text-ink-soft hover:bg-ink/5 disabled:opacity-40" onClick={() => onChange(Math.min(max, value + 1))}>
+        <Plus className="size-3" />
+      </button>
+    </div>
+  );
 }
 
 function Switch({ checked, onChange, label, koma }: { checked: boolean; onChange: (v: boolean) => void; label: string; koma?: string }) {
@@ -332,18 +347,18 @@ export function MakerDialog({ open, onClose }: { open: boolean; onClose: () => v
     stoppedRef.current = false;
     setStarted(Date.now());
     setNow(Date.now());
-    setProgress({ step: "starting", detail: "", fraction: 0.02, notes: [] });
+    setProgress({ step: "starting", detail: "", fraction: 0.02, notes: [], timings: [] });
     const handle = startChapter({ chosen, settings, onProgress: setProgress });
     runRef.current = handle;
     try {
-      const { file, notes } = await handle.done;
+      const { file, notes, timings } = await handle.done;
       if (stoppedRef.current) return;
       setFinishing(true);
       const record = await openProjectDocument(file as unknown as { name: string; doc: ProjectDoc }, chosen.folderName);
       useStudio.getState().setReadMode(false);
       const pages = (file.doc.pages ?? []).length;
       toast.success(`“${record.name}” is ready · ${pages} page${pages === 1 ? "" : "s"}`, {
-        description: notes.length ? notes.join(" ") : "Every panel and bubble can be edited.",
+        description: [notes.length ? notes.join(" ") : "Every panel and bubble can be edited.", timingSummary(timings)].filter(Boolean).join(" "),
         duration: 9000,
       });
       setProgress(null);
@@ -760,29 +775,26 @@ export function MakerDialog({ open, onClose }: { open: boolean; onClose: () => v
                     </Row>
                     <Row>
                       <p className="flex-1 text-[13px] text-ink">Pages written at a time</p>
-                      <div className="flex items-center overflow-hidden rounded-[7px] border border-line bg-paper-white [[data-theme=dark]_&]:bg-white/[0.07]">
-                        <button
-                          type="button"
-                          aria-label="Fewer"
-                          className="px-2 py-1 text-ink-soft hover:bg-ink/5"
-                          onClick={() =>
-                            update((st) => ({ ...st, advanced: { ...st.advanced, pagesPerCall: Math.max(1, st.advanced.pagesPerCall - 1) } }))
-                          }
-                        >
-                          <Minus className="size-3" />
-                        </button>
-                        <span className="w-7 text-center text-[13px] tabular-nums">{s.advanced.pagesPerCall}</span>
-                        <button
-                          type="button"
-                          aria-label="More"
-                          className="px-2 py-1 text-ink-soft hover:bg-ink/5"
-                          onClick={() =>
-                            update((st) => ({ ...st, advanced: { ...st.advanced, pagesPerCall: Math.min(10, st.advanced.pagesPerCall + 1) } }))
-                          }
-                        >
-                          <Plus className="size-3" />
-                        </button>
+                      <Stepper
+                        label="pages"
+                        value={s.advanced.pagesPerCall}
+                        min={1}
+                        max={10}
+                        onChange={(v) => update((st) => ({ ...st, advanced: { ...st.advanced, pagesPerCall: v } }))}
+                      />
+                    </Row>
+                    <Row>
+                      <div className="flex-1">
+                        <p className="text-[13px] text-ink">Images looked at together</p>
+                        <p className="text-[11px] leading-snug text-muted">Faster on a big graphics card. Use 1 if Ollama runs out of memory.</p>
                       </div>
+                      <Stepper
+                        label="images"
+                        value={s.advanced.parallel}
+                        min={1}
+                        max={8}
+                        onChange={(v) => update((st) => ({ ...st, advanced: { ...st.advanced, parallel: v } }))}
+                      />
                     </Row>
                     {(
                       [

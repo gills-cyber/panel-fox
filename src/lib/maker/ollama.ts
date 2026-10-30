@@ -45,11 +45,14 @@ export class OllamaClient implements ModelClient {
   numCtx: number | null;
   signal?: AbortSignal;
   onToken?: (chars: number) => void;
+  /** How long Ollama keeps a model in memory after a call (seconds, or -1 for always). */
+  keepAlive: number | string;
 
-  constructor(host = "http://localhost:11434", numCtx: number | null = null, signal?: AbortSignal) {
+  constructor(host = "http://localhost:11434", numCtx: number | null = null, signal?: AbortSignal, keepAlive: number | string = 3600) {
     this.host = normalizeHost(host) ?? host.replace(/\/+$/, "");
     this.numCtx = numCtx;
     this.signal = signal;
+    this.keepAlive = keepAlive;
   }
 
   private async request(path: string, payload?: unknown): Promise<Response> {
@@ -110,7 +113,7 @@ export class OllamaClient implements ModelClient {
   }
 
   private async chat(payload: Record<string, unknown>): Promise<string> {
-    const res = await this.request("/api/chat", { ...payload, stream: true });
+    const res = await this.request("/api/chat", { ...payload, keep_alive: this.keepAlive, stream: true });
     const reader = res.body?.getReader();
     if (!reader) return "";
     const dec = new TextDecoder();

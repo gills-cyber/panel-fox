@@ -20,6 +20,8 @@ export type MakerAdvanced = {
   rtl: boolean;
   keepOrder: boolean;
   pagesPerCall: number;
+  /** images the vision model looks at at once */
+  parallel: number;
   language: string;
   testMode: boolean;
 };
@@ -41,6 +43,7 @@ export const DEFAULT_ADVANCED: MakerAdvanced = {
   rtl: true,
   keepOrder: false,
   pagesPerCall: 3,
+  parallel: 4,
   language: "English",
   testMode: false,
 };
@@ -248,17 +251,21 @@ export async function ollamaStatus(adv: MakerAdvanced): Promise<OllamaStatus> {
 // ---------- progress ------------------------------------------------------------
 
 export type Step = "starting" | "looking" | "ordering" | "layout" | "writing" | "saving" | "done";
-export type Progress = { step: Step; detail: string; fraction: number; notes: string[] };
+export type Progress = { step: Step; detail: string; fraction: number; notes: string[]; timings: string[] };
 
 /** Turn the engine's log lines into plain-language progress. */
 export function progressFromLog(line: string, p: Progress): Progress {
   const l = line.trim();
   const next = { ...p, notes: [...p.notes] };
   let m: RegExpExecArray | null;
+  if (l.startsWith("[TIME]")) {
+    console.info(l);
+    return { ...next, timings: [...p.timings, l.slice(6).trim()] };
+  }
   if ((m = /vision (\d+)\/(\d+)/.exec(l))) {
     const i = +m[1]!;
     const n = +m[2]!;
-    return { ...next, step: "looking", detail: `Image ${i} of ${n}`, fraction: 0.05 + (0.5 * (i - 1)) / Math.max(1, n) };
+    return { ...next, step: "looking", detail: `${i} of ${n} images done`, fraction: 0.05 + (0.5 * i) / Math.max(1, n) };
   }
   if (l.startsWith("mock mode")) next.notes.push("Test run: placeholder text, no models were used.");
   else if (l.includes("using cached vision")) return { ...next, step: "looking", detail: "Already seen these images, reusing", fraction: 0.5 };
@@ -289,6 +296,33 @@ export function progressFromLog(line: string, p: Progress): Progress {
   return next;
 }
 
+/** "Vision analysis, 10 images: 84.2s" lines -> "Took 2m 5s: looking at images 1m 24s, writing 31s." */
+export function timingSummary(timings: string[]): string {
+  const value = (label: RegExp) => {
+    let total = 0;
+    let found = false;
+    for (const t of timings) {
+      const m = /^(.*): ([\d.]+)s$/.exec(t);
+      if (m && label.test(m[1]!)) {
+        total += Number(m[2]);
+        found = true;
+      }
+    }
+    return found ? total : null;
+  };
+  const fmt = (x: number) => (x >= 60 ? `${Math.floor(x / 60)}m ${Math.round(x % 60)}s` : `${x < 10 ? x.toFixed(1) : Math.round(x)}s`);
+  const total = value(/^Total$/);
+  if (total === null) return "";
+  const parts: string[] = [];
+  const looking = value(/^Vision analysis/);
+  const story = value(/^(Story outline|Reading order)/);
+  const writing = value(/^Script generation/);
+  if (looking !== null) parts.push(`looking at images ${fmt(looking)}`);
+  if (story !== null) parts.push(`story ${fmt(story)}`);
+  if (writing !== null) parts.push(`writing ${fmt(writing)}`);
+  return `Took ${fmt(total)}${parts.length ? `: ${parts.join(", ")}` : ""}.`;
+}
+
 export function friendlyError(e: unknown): string {
   const text = e instanceof Error ? e.message : String(e ?? "");
   if (text.includes("Cannot reach Ollama")) {
@@ -312,14 +346,15 @@ export type RunRequest = {
   onProgress: (p: Progress) => void;
 };
 
-export type RunHandle = { done: Promise<{ file: KomaFile; notes: string[] }>; stop: () => void };
+export type RunResultInfo = { file: KomaFile; notes: string[]; timings: string[] };
+export type RunHandle = { done: Promise<RunResultInfo>; stop: () => void };
 
 export function startChapter(req: RunRequest): RunHandle {
   const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
-  let progress: Progress = { step: "starting", detail: "", fraction: 0.02, notes: [] };
-  type Settle = { resolve: (v: { file: KomaFile; notes: string[] }) => void; reject: (e: unknown) => void };
+  let progress: Progress = { step: "starting", detail: "", fraction: 0.02, notes: [], timings: [] };
+  type Settle = { resolve: (v: RunResultInfo) => void; reject: (e: unknown) => void };
   const holder: { s: Settle | null } = { s: null };
-  const done = new Promise<{ file: KomaFile; notes: string[] }>((resolve, reject) => {
+  const done = new Promise<RunResultInfo>((resolve, reject) => {
     holder.s = { resolve, reject };
   });
   let stopped = false;
@@ -357,7 +392,7 @@ export function startChapter(req: RunRequest): RunHandle {
           if (key) void writeCache(key, msg.value);
         } else if (msg.type === "done") {
           worker.terminate();
-          holder.s?.resolve({ file: msg.file, notes: progress.notes });
+          holder.s?.resolve({ file: msg.file, notes: progress.notes, timings: progress.timings });
           holder.s = null;
         } else if (msg.type === "error") {
           worker.terminate();
@@ -390,6 +425,8 @@ export function startChapter(req: RunRequest): RunHandle {
             keepOrder: a.keepOrder,
             rtl: a.rtl,
             pagesPerCall: Math.max(1, Math.trunc(a.pagesPerCall) || 3),
+            parallel: Math.min(8, Math.max(1, Math.trunc(a.parallel) || 4)),
+            keepAlive: 3600,
             language: a.language || "English",
             temperature: Number.isFinite(a.temperature) ? a.temperature : 0.85,
             selectImages: !s.useAllImages,

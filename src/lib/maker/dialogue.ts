@@ -519,7 +519,9 @@ export async function writeScript(
     }
     log(`  dialogue: pages ${start + 1}-${start + chunk.length} of ${pages.length}`);
     const prompt = buildDialoguePrompt(cfg, storyNotes, summary, history(all), briefs, language);
+    const t0 = Date.now();
     const raw = await client.chatJson(model, DIALOGUE_SYSTEM, prompt, null, SCRIPT_SCHEMA, temperature);
+    log(`[TIME] Dialogue for pages ${start + 1}-${start + chunk.length}: ${((Date.now() - t0) / 1000).toFixed(1)}s`);
     const lines = normalizeLines(raw, cfg, pagePanels, byPanel, said, log);
     for (const l of lines) l.page_id = pagePanels.get(l.panel_id)![1].id;
     all.push(...lines);

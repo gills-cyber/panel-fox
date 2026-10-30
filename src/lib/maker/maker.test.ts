@@ -87,3 +87,77 @@ test("a test run turns images into a chapter with pages and bubbles", async () =
   assert.equal(panels.length, 3);
   assert.ok(pages.some((p) => (p.overlays as unknown[]).length > 0), "some page has speech bubbles");
 });
+
+test("images are looked at in parallel and keep their order", async () => {
+  const { analyseImages } = await import("./vision.ts");
+  const cfg = loadConfig({ characters: [{ name: "Aiko" }] });
+  const images = Array.from({ length: 6 }, (_, i) => ({ name: `${i + 1}.png`, bytes: new Uint8Array([i]) }));
+  let live = 0;
+  let most = 0;
+  const client = {
+    async checkModels() {
+      return [];
+    },
+    async chatJson(_m: string, _s: string, _u: string, imgs: string[] | null) {
+      live++;
+      most = Math.max(most, live);
+      const which = Number(imgs!.at(-1));
+      // later images answer first, to shuffle the finishing order
+      await new Promise((r) => setTimeout(r, 30 - which * 4));
+      live--;
+      return { scene_summary: `scene ${which}`, characters: [] };
+    },
+  };
+  const got = await analyseImages(client, "m", cfg, images, async (img) => String(img.bytes[0]), false, () => {}, 4);
+  assert.equal(most, 4);
+  assert.deepEqual(Array.from(got.keys()), images.map((i) => i.name));
+  assert.deepEqual(Array.from(got.values()).map((a) => a.scene_summary), images.map((_, i) => `scene ${i}`));
+});
+
+test("the earliest failing image is the one reported", async () => {
+  const { analyseImages } = await import("./vision.ts");
+  const cfg = loadConfig({ characters: [{ name: "Aiko" }] });
+  const images = Array.from({ length: 4 }, (_, i) => ({ name: `${i + 1}.png`, bytes: new Uint8Array([i]) }));
+  const client = {
+    async checkModels() {
+      return [];
+    },
+    async chatJson(_m: string, _s: string, _u: string, imgs: string[] | null) {
+      const which = Number(imgs!.at(-1));
+      await new Promise((r) => setTimeout(r, 20 - which * 5));
+      if (which >= 1) throw new Error(`bad ${which}`);
+      return { characters: [] };
+    },
+  };
+  await assert.rejects(analyseImages(client, "m", cfg, images, async (img) => String(img.bytes[0]), false, () => {}, 4), /bad 1/);
+});
+
+test("every Ollama call asks to keep the model loaded", async () => {
+  const { OllamaClient } = await import("./ollama.ts");
+  const sent: Record<string, unknown>[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    sent.push(JSON.parse(String(init.body)));
+    return new Response(JSON.stringify({ message: { content: '{"ok": true}' }, done: true }) + "\n");
+  }) as typeof fetch;
+  try {
+    await new OllamaClient("localhost:11434").chatJson("m", "s", "u");
+    await new OllamaClient("http://localhost:11434", null, undefined, -1).chatJson("m", "s", "u");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(sent[0]!.keep_alive, 3600);
+  assert.equal(sent[1]!.keep_alive, -1);
+});
+
+test("a run reports how long each step took", async () => {
+  const lines: string[] = [];
+  await run(
+    { images: [{ name: "01.png", bytes: png(40, 60, [1, 2, 3]) }], config: { characters: [{ name: "Aiko" }] }, mock: true },
+    (l) => lines.push(l),
+  );
+  const times = lines.filter((l) => l.startsWith("[TIME]"));
+  assert.ok(times.some((l) => /^\[TIME\] Vision analysis, 1 images: \d+\.\ds$/.test(l)));
+  assert.ok(times.some((l) => l.startsWith("[TIME] Script generation")));
+  assert.ok(times.at(-1)!.startsWith("[TIME] Total: "));
+});
