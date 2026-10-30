@@ -281,12 +281,20 @@ export async function loadProjectFile(file: File) {
   if (parsed.kind !== FILE_KIND || !parsed.doc?.pages?.length) {
     throw new Error("Not a PanelFox project file");
   }
+  return openProjectDocument(parsed, file.name.replace(/\.koma$/i, ""));
+}
+
+/**
+ * Add a project document (a parsed .koma file, or a chapter the Manga Maker
+ * just made) to the library and open it. The open manga is kept first.
+ */
+export async function openProjectDocument(
+  parsed: { name?: string; doc?: ProjectDoc },
+  fallbackName = "Untitled",
+) {
+  if (!parsed.doc?.pages?.length) throw new Error("Not a PanelFox project file");
   await saveCurrentIfNeeded();
-  const rawName =
-    parsed.name ||
-    parsed.doc.projectName ||
-    file.name.replace(/\.koma$/i, "") ||
-    "Untitled";
+  const rawName = parsed.name || parsed.doc.projectName || fallbackName || "Untitled";
   const name = await uniqueProjectName(rawName);
   const id = uid("proj");
   const record: ProjectRecord = {

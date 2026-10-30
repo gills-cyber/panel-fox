@@ -22,6 +22,7 @@ import {
   RotateCw,
   ScrollText,
   Share,
+  Sparkles,
   Trash2,
   Type,
   FlipHorizontal2,
@@ -50,6 +51,7 @@ import { TemplateThumb } from "@/components/manga/template-thumb";
 import { StickerMark } from "@/components/manga/bubble";
 import { AppMenu } from "@/components/manga/app-menu";
 import { ExportDialog } from "@/components/manga/export-dialog";
+import { MakerDialog } from "@/components/manga/maker-dialog";
 import { Reader } from "@/components/manga/reader";
 import { ScriptPanel } from "@/components/manga/script-panel";
 import { BalloonStylePicker } from "@/components/manga/balloon-style";
@@ -120,6 +122,12 @@ type Menu = "layout" | "zoom" | "media" | "stickers" | null;
 type InspectorTab = "format" | "document" | "script";
 type StickerTab = "manga" | "clinic" | "logos";
 
+
+/** The chapter maker window is modal: the editor ignores keys and pastes while it is open. */
+function makerWindowShowing() {
+  return typeof document !== "undefined" && document.querySelector('[data-koma-dialog="maker"]') !== null;
+}
+
 export function Studio() {
   const page = useCurrentPage();
   const pages = useStudio((s) => s.pages);
@@ -136,6 +144,7 @@ export function Studio() {
   const [pageMenu, setPageMenu] = useState<PageRailMenu | null>(null);
   const stageRef = useRef<HTMLElement>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [makerOpen, setMakerOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveAsCopy, setSaveAsCopy] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
@@ -283,6 +292,7 @@ export function Studio() {
 
   useEffect(() => {
     function onPaste(e: ClipboardEvent) {
+      if (makerWindowShowing()) return;
       if (useStudio.getState().readMode) return;
       const files = [...(e.clipboardData?.files ?? [])];
       if (!files.length) return;
@@ -295,6 +305,7 @@ export function Studio() {
       );
     }
     function onKey(e: KeyboardEvent) {
+      if (makerWindowShowing()) return;
       if (useStudio.getState().readMode) {
         const used = handleStudioHotkey(e);
         if (used && e.key === "Escape") {
@@ -572,6 +583,7 @@ export function Studio() {
         onOpen={() => setProjectsOpen(true)}
         onNew={handleNew}
         onNewBrochure={handleNewBrochure}
+        onMakeChapter={() => setMakerOpen(true)}
         onDownloadProject={() => downloadProjectFile()}
         onScript={() => setTab("script")}
         onRead={() => useStudio.getState().toggleReadMode()}
@@ -788,6 +800,14 @@ export function Studio() {
             <BookOpen className="size-4" />
             <span className="hidden sm:inline">Read</span>
           </button>
+
+          <ToolTipBtn
+            label="New Chapter from Images"
+            koma="maker-open"
+            onClick={() => setMakerOpen(true)}
+          >
+            <Sparkles />
+          </ToolTipBtn>
 
           <ToolTipBtn
             label="Projects"
@@ -1317,6 +1337,10 @@ export function Studio() {
         onClose={() => setProjectsOpen(false)}
         onOpenFile={() => projectFileRef.current?.click()}
         onNew={() => setProjectsOpen(false)}
+        onMakeChapter={() => {
+          setProjectsOpen(false);
+          setMakerOpen(true);
+        }}
         onSaveAs={() => {
           setProjectsOpen(false);
           handleSaveAs();
@@ -1328,6 +1352,7 @@ export function Studio() {
         }}
       />
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
+      <MakerDialog open={makerOpen} onClose={() => setMakerOpen(false)} />
     </div>
   );
 }
