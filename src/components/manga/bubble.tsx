@@ -694,6 +694,43 @@ export function Bubble({
   const order = scriptOrder(script, overlay.scriptLineId);
   const speaker = speakerOf(cast, overlay.speakerId);
 
+  // keep the floating bar inside the page area, so it never slides under the sidebar
+  const barRef = useRef<HTMLDivElement>(null);
+  const [barNudge, setBarNudge] = useState(0);
+  // a bar beside the bubble that does not fit goes below it instead
+  const [barBelow, setBarBelow] = useState(false);
+  const [barMax, setBarMax] = useState<number | null>(null);
+  const besideBubble = barStyle.top === 0 && barStyle.left !== "50%";
+  useEffect(() => {
+    setBarBelow(false);
+    setBarNudge(0);
+  }, [selected, besideBubble]);
+  useLayoutEffect(() => {
+    const bar = barRef.current;
+    if (!bar) return;
+    const area = bar.closest("[data-koma='page-stage']") ?? document.documentElement;
+    const r = bar.getBoundingClientRect();
+    const a = area.getBoundingClientRect();
+    const left = r.left - barNudge;
+    const right = r.right - barNudge;
+    const pad = 8;
+    const room = Math.floor(a.width - pad * 2);
+    if (room > 0 && barMax !== room) {
+      setBarMax(room);
+      return;
+    }
+    if (besideBubble && !barBelow && (right > a.right - pad || left < a.left + pad)) {
+      setBarBelow(true);
+      return;
+    }
+    let next = 0;
+    if (right > a.right - pad) next = a.right - pad - right;
+    if (left + next < a.left + pad) next = a.left + pad - left;
+    if (Math.abs(next - barNudge) > 0.5) setBarNudge(next);
+  });
+  const shownBarStyle: CSSProperties =
+    besideBubble && barBelow ? { left: "50%", top: "100%", transform: "translate(-50%, 10px)" } : barStyle;
+
   return (
     <div
       ref={rootRef}
@@ -981,9 +1018,10 @@ export function Bubble({
 
       {selected && !hideBar ? (
         <div
+          ref={barRef}
           className="koma-ov-bar"
           data-koma="letter-bar"
-          style={barStyle}
+          style={{ ...shownBarStyle, maxWidth: barMax ?? undefined, translate: barNudge ? `${Math.round(barNudge)}px 0` : undefined }}
           onPointerDown={(e) => {
             e.stopPropagation();
             if ((e.target as HTMLElement).closest("button, input, textarea, select, label, [role='slider'], [data-koma='sticker-opacity']")) return;
@@ -1233,14 +1271,14 @@ export function Bubble({
       {selected && canRotate(overlay.kind) && !overlay.locked ? (
         <>
           <span
-            className={cn("koma-rotate-stem", barStyle.top !== "100%" && "is-below")}
+            className={cn("koma-rotate-stem", shownBarStyle.top !== "100%" && "is-below")}
             aria-hidden
           />
           <button
             type="button"
             aria-label="Rotate"
             data-koma="rotate-handle"
-            className={cn("koma-rotate-knob", barStyle.top !== "100%" && "is-below")}
+            className={cn("koma-rotate-knob", shownBarStyle.top !== "100%" && "is-below")}
             onPointerDown={(e) => onPointerDown(e, "rotate")}
           />
         </>

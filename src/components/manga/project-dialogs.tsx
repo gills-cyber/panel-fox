@@ -192,6 +192,7 @@ export function OpenProjectDialog({
               ? `${rows.length} manga on this device · search, open, or save another`
               : "Save this manga to keep it. You can store as many as you want."}
           </p>
+          {rows.length ? (
           <label className="relative mt-3 block">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted" />
             <input
@@ -204,6 +205,7 @@ export function OpenProjectDialog({
               className="h-10 w-full rounded-md border border-line bg-paper-white pl-8 pr-2.5 text-[16px] outline-none ring-accent focus:ring-2"
             />
           </label>
+          ) : null}
           {!currentId && documentHasWork() ? (
             <div className="mt-3 flex items-center justify-between gap-2 rounded-md bg-ink/5 px-2.5 py-2">
               <p className="text-[12px] text-ink">This manga isn’t in the library yet.</p>
@@ -222,7 +224,7 @@ export function OpenProjectDialog({
           {rows.length === 0 ? (
             <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
               <p className="text-[13px] text-muted">No saved projects yet.</p>
-              {onSaveFirst || onSaveAs ? (
+              {(onSaveFirst || onSaveAs) && !(!currentId && documentHasWork()) ? (
                 <Button
                   type="button"
                   size="sm"

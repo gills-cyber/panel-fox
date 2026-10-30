@@ -120,7 +120,7 @@ import {
 type Drawer = "layouts" | "images" | "adjust" | "script" | null;
 type Menu = "layout" | "zoom" | "media" | "stickers" | null;
 type InspectorTab = "format" | "document" | "script";
-type StickerTab = "manga" | "clinic" | "logos";
+type StickerTab = "manga" | "sfx" | "clinic" | "logos";
 
 
 /** The chapter maker window is modal: the editor ignores keys and pastes while it is open. */
@@ -137,7 +137,7 @@ export function Studio() {
   const pickFor = useRef<string | null>(null);
   const [drawer, setDrawer] = useState<Drawer>(null);
   const [menu, setMenu] = useState<Menu>(null);
-  const [stickerTab, setStickerTab] = useState<StickerTab>("clinic");
+  const [stickerTab, setStickerTab] = useState<StickerTab>("manga");
   const [tab, setTab] = useState<InspectorTab>("format");
   const [thumbs, setThumbs] = useState(true);
   const [zoom, setZoom] = useState<PageZoom>("fit");
@@ -598,7 +598,7 @@ export function Studio() {
         onZoomFit={() => setZoom("fit")}
       />
 
-      <header className="koma-glass relative z-40 flex h-14 min-h-14 max-h-14 shrink-0 items-center gap-1 overflow-visible border-b border-line/70 px-2 sm:px-3 md:h-12 md:min-h-12 md:max-h-12">
+      <header className="koma-glass relative z-40 flex h-14 min-h-14 max-h-14 shrink-0 items-center gap-1 overflow-visible border-b border-line/70 px-2 sm:px-3 md:h-12 md:min-h-12 md:max-h-12 2xl:h-[60px] 2xl:min-h-[60px] 2xl:max-h-[60px]">
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
           <ToolTipBtn
             label="Page thumbnails"
@@ -645,13 +645,14 @@ export function Studio() {
               <Redo2 />
             </ToolTipBtn>
           </ToolGroup>
-          <PageTitle />
+          <div className="hidden min-w-0 sm:block"><PageTitle /></div>
         </div>
 
         <div className="hidden shrink-0 items-center md:flex">
           <ToolGroup>
             <ToolTipBtn
               label="Layouts"
+              caption="Layouts"
               active={menu === "layout"}
               onClick={(e) => {
                 e.stopPropagation();
@@ -663,6 +664,7 @@ export function Studio() {
             </ToolTipBtn>
             <ToolTipBtn
               label="Media"
+              caption="Media"
               active={menu === "media"}
               onClick={(e) => {
                 e.stopPropagation();
@@ -674,36 +676,45 @@ export function Studio() {
             </ToolTipBtn>
             <ToolTipBtn
               label="Speech bubble"
+              caption="Speech"
               onClick={() => useStudio.getState().addOverlay("speech")}
             >
               <MessageCircle />
             </ToolTipBtn>
             <ToolTipBtn
               label="Thought bubble"
+              caption="Thought"
               onClick={() => useStudio.getState().addOverlay("thought")}
             >
               <Cloud />
             </ToolTipBtn>
             <ToolTipBtn
               label="Narration box"
+              caption="Caption"
               onClick={() => useStudio.getState().addOverlay("narration")}
             >
               <RectangleHorizontal />
             </ToolTipBtn>
             <ToolTipBtn
               label="Title"
+              caption="Title"
               onClick={() => insertTitle()}
             >
               <Type />
             </ToolTipBtn>
             <ToolTipBtn
               label="Stickers"
+              caption="Stickers"
               active={menu === "stickers"}
               onClick={(e) => {
                 e.stopPropagation();
                 if (menu !== "stickers") {
                   setStickerTab(
-                    page.templateId.startsWith("brochure") ? "clinic" : stickerTab,
+                    page.templateId.startsWith("brochure")
+                      ? "clinic"
+                      : stickerTab === "clinic"
+                        ? "manga"
+                        : stickerTab,
                   );
                 }
                 setMenu(menu === "stickers" ? null : "stickers");
@@ -725,12 +736,14 @@ export function Studio() {
             </ToolTipBtn>
             <ToolTipBtn
               label="Title"
+              className="hidden sm:inline-flex"
               onClick={() => insertTitle()}
             >
               <Type />
             </ToolTipBtn>
             <ToolTipBtn
               label="Stickers"
+              className="hidden sm:inline-flex"
               onClick={() => useStudio.getState().addOverlay("sticker", "heart")}
             >
               <Heart />
@@ -739,6 +752,7 @@ export function Studio() {
           <div className="relative flex items-center">
             <ToolTipBtn
               label="Zoom out"
+              className="hidden sm:inline-flex"
               koma="zoom-out"
               onClick={() => setZoom((z) => stepZoom(z, -1))}
             >
@@ -757,6 +771,7 @@ export function Studio() {
             </button>
             <ToolTipBtn
               label="Zoom in"
+              className="hidden sm:inline-flex"
               koma="zoom-in"
               onClick={() => setZoom((z) => stepZoom(z, 1))}
             >
@@ -803,6 +818,8 @@ export function Studio() {
 
           <ToolTipBtn
             label="New Chapter from Images"
+              caption="Make Chapter"
+            className="hidden sm:inline-flex"
             koma="maker-open"
             onClick={() => setMakerOpen(true)}
           >
@@ -811,6 +828,8 @@ export function Studio() {
 
           <ToolTipBtn
             label="Projects"
+              caption="Projects"
+            className="hidden sm:inline-flex"
             koma="projects-open"
             onClick={() => setProjectsOpen(true)}
           >
@@ -819,6 +838,7 @@ export function Studio() {
 
           <ToolTipBtn
             label="Export"
+              caption="Export"
             onClick={() => setExportOpen(true)}
           >
             <Share />
@@ -827,6 +847,7 @@ export function Studio() {
           <ToolGroup className="hidden md:flex">
             <ToolTipBtn
               label="Format"
+              caption="Format"
               active={tab === "format"}
               onClick={() => setTab("format")}
             >
@@ -834,6 +855,7 @@ export function Studio() {
             </ToolTipBtn>
             <ToolTipBtn
               label="Script"
+              caption="Script"
               koma="script-open"
               active={tab === "script"}
               onClick={() => setTab("script")}
@@ -842,6 +864,7 @@ export function Studio() {
             </ToolTipBtn>
             <ToolTipBtn
               label="Document"
+              caption="Document"
               active={tab === "document"}
               onClick={() => setTab("document")}
             >
@@ -851,7 +874,7 @@ export function Studio() {
         </div>
 
         {menu === "layout" ? (
-          <MenuPanel className="left-1/2 top-12 w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2">
+          <MenuPanel className="left-1/2 top-12 2xl:top-[60px] w-[min(40rem,calc(100vw-2rem))] -translate-x-1/2">
             <p className="px-2 pb-2 text-xs font-medium text-muted">
               Manga pages
             </p>
@@ -888,7 +911,7 @@ export function Studio() {
         ) : null}
 
         {menu === "media" ? (
-          <MenuPanel className="left-1/2 top-12 w-80 -translate-x-1/2">
+          <MenuPanel className="left-1/2 top-12 2xl:top-[60px] w-80 -translate-x-1/2">
             <p className="px-2 pb-2 text-xs font-medium text-muted">
               Sample art
             </p>
@@ -917,12 +940,13 @@ export function Studio() {
           </MenuPanel>
         ) : null}
         {menu === "stickers" ? (
-          <MenuPanel className="left-1/2 top-12 w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2">
+          <MenuPanel className="left-1/2 top-12 2xl:top-[60px] w-[min(22rem,calc(100vw-2rem))] -translate-x-1/2">
             <div className="mb-2 flex rounded-md bg-ink/5 p-0.5">
               {(
                 [
-                  ["clinic", "Clinic"],
-                  ["manga", "Manga"],
+                  ["manga", "Marks"],
+                  ["sfx", "Sound Effects"],
+                  ...(page.templateId.startsWith("brochure") ? ([["clinic", "Clinic"]] as const) : []),
                   ["logos", "Logos"],
                 ] as const
               ).map(([id, label]) => (
@@ -954,6 +978,14 @@ export function Studio() {
                   }}
                 />
               </>
+            ) : null}
+            {stickerTab === "sfx" ? (
+              <SfxGrid
+                onPick={(id) => {
+                  useStudio.getState().addOverlay("sfx", undefined, id);
+                  setMenu(null);
+                }}
+              />
             ) : null}
             {stickerTab === "clinic" ? (
               <ClinicIconGrid
@@ -1068,7 +1100,7 @@ export function Studio() {
         <main
           ref={stageRef}
           data-koma="page-stage"
-          className="relative min-h-0 flex-1 overflow-auto bg-bg px-4 py-5 sm:px-10 sm:py-10"
+          className="relative isolate min-h-0 flex-1 overflow-auto bg-bg px-4 py-5 sm:px-10 sm:py-10"
         >
           <SpreadView
             onPickFile={openPicker}
@@ -1110,6 +1142,7 @@ export function Studio() {
             hasCustomLayout={page.panels.some((p) => p.rect)}
             onOpenFile={() => openPicker(selected?.id)}
             onArmFile={() => armPicker(selected?.id)}
+            showInsert={false}
           />
           )}
         </aside>
@@ -1418,9 +1451,12 @@ function PageTitle() {
           e.stopPropagation();
           startEditing();
         }}
-        className="relative z-10 max-w-full min-h-11 min-w-0 truncate rounded-sm px-1.5 py-1 text-left text-base font-medium tracking-tight hover:bg-ink/5 md:text-sm"
+        className={cn(
+          "relative z-10 max-w-full min-h-11 min-w-0 truncate rounded-sm px-1.5 py-1 text-left text-base font-medium tracking-tight hover:bg-ink/5 md:text-sm",
+          display === "Untitled" && "font-normal text-faint",
+        )}
       >
-        {display}
+        {display === "Untitled" ? "Page title" : display}
       </button>
     );
   }
@@ -1485,8 +1521,11 @@ function ToolTipBtn({
   menu,
   koma,
   disabled,
+  caption,
 }: {
   label: string;
+  /** a short word shown under the icon on wide windows */
+  caption?: string;
   active?: boolean;
   onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
   children: ReactNode;
@@ -1508,12 +1547,14 @@ function ToolTipBtn({
       onClick={onClick}
       className={cn(
         "flex size-11 shrink-0 items-center justify-center rounded-[8px] text-ink transition-colors duration-[var(--motion-quick)] [&>svg]:size-5 md:size-8 md:[&>svg]:size-4",
+        caption && "2xl:h-11 2xl:w-auto 2xl:min-w-12 2xl:flex-col 2xl:gap-0.5 2xl:px-1.5",
         active ? "bg-ink/10" : "hover:bg-ink/6 active:bg-ink/10",
         disabled && "opacity-35",
         className,
       )}
     >
       {children}
+      {caption ? <span className="hidden text-[10px] leading-none text-ink-soft 2xl:block">{caption}</span> : null}
     </button>
   );
 }
@@ -1528,7 +1569,7 @@ function MenuPanel({
   return (
     <div
       className={cn(
-        "absolute top-11 z-40 rounded-[14px] bg-surface/92 p-2 shadow-float backdrop-blur-2xl koma-pop-in",
+        "absolute top-11 z-40 max-h-[min(70vh,34rem)] overflow-y-auto overscroll-contain rounded-[14px] bg-surface p-2 shadow-float koma-pop-in",
         className,
       )}
       data-koma-menu
@@ -1736,6 +1777,7 @@ function Inspector({
   onOpenFile,
   onArmFile,
   onAdded,
+  showInsert = true,
 }: {
   tab: InspectorTab;
   showAll?: boolean;
@@ -1752,8 +1794,11 @@ function Inspector({
   onOpenFile: () => void;
   onArmFile?: () => void;
   onAdded?: () => void;
+  /** the add-bubble and sticker buttons; off on wide windows, where the toolbar has them */
+  showInsert?: boolean;
 }) {
   const image = selected?.image ?? null;
+  const brochure = useCurrentPage().templateId.startsWith("brochure");
   const showFormat = showAll || tab === "format";
   const showDocument = showAll || tab === "document";
   const logos = useStudio((s) => s.customStickers);
@@ -1770,14 +1815,16 @@ function Inspector({
     <div className="flex flex-col gap-5 px-4 pb-8 pt-4">
       {showFormat ? (
         <section className="space-y-4">
-          <InsertTools onAdded={onAdded} />
-          <label
-            htmlFor="koma-file"
-            className="flex min-h-12 cursor-pointer items-center justify-center rounded-md bg-ink/5 text-xs font-medium active:bg-ink/15 hover:bg-ink/10"
-            onPointerDown={() => onArmFile?.()}
-          >
-            Choose photo
-          </label>
+          {showInsert ? <InsertTools onAdded={onAdded} /> : null}
+          {showInsert || (selected && !image && !overlay) ? (
+            <label
+              htmlFor="koma-file"
+              className="flex min-h-12 cursor-pointer items-center justify-center rounded-md bg-ink/5 text-xs font-medium active:bg-ink/15 hover:bg-ink/10"
+              onPointerDown={() => onArmFile?.()}
+            >
+              Choose Photo…
+            </label>
+          ) : null}
           {overlay ? (
             <OverlayEditor overlay={overlay} />
           ) : selected && image ? (
@@ -1918,14 +1965,20 @@ function Inspector({
             </>
           ) : selected ? (
             <p className="text-sm leading-relaxed text-muted">
-              Drop an image into this panel. Drag the blue handles to resize
-              the frame.
+              Drop an image into this panel, or choose one above. Drag the blue
+              handles to resize the frame.
             </p>
           ) : (
-            <p className="text-sm leading-relaxed text-muted">
-              Select a panel to crop its photo, add a speech bubble, or drop
-              clinic icons and a logo onto a brochure.
-            </p>
+            <div className="space-y-1.5 pt-1 text-center" data-koma="inspector-empty">
+              <p className="text-[13px] font-medium text-ink">Nothing selected</p>
+              <p className="text-xs leading-relaxed text-muted">
+                {brochure
+                  ? "Click a panel to change its photo, or add clinic icons and a logo from Stickers."
+                  : showInsert
+                    ? "Tap a panel to change its photo, or add a speech bubble above."
+                    : "Click a panel to change its photo, or a bubble to restyle it. Add bubbles from the toolbar."}
+              </p>
+            </div>
           )}
         </section>
       ) : null}
@@ -1937,29 +1990,16 @@ function Inspector({
           ) : null}
           <BookInspector />
           <ProjectPanel />
+          {brochure ? (
+            <>
           <LogoLibrary
             logos={logos}
             onUpload={uploadLogo}
             onPlace={(src) => useStudio.getState().placeLogo(src)}
             onRemove={(id) => useStudio.getState().removeCustomSticker(id)}
           />
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full"
-            data-koma="new-brochure"
-            onClick={() => {
-              void startNewBrochure().then((stashed) => {
-                if (stashed.saved) {
-                  toast.message(`Saved “${stashed.name}”. Started a clinic brochure.`);
-                } else {
-                  toast.message("New clinic brochure");
-                }
-              });
-            }}
-          >
-            Start clinic brochure
-          </Button>
+            </>
+          ) : null}
           <Field label="Gutter">
             <Slider
               min={0.4}
@@ -2094,6 +2134,7 @@ function Inspector({
 }
 
 function InsertTools({ onAdded }: { onAdded?: () => void }) {
+  const brochure = useCurrentPage().templateId.startsWith("brochure");
   function add(kind: OverlayKind, sticker?: StickerId, text?: string) {
     if (kind === "title") insertTitle();
     else useStudio.getState().addOverlay(kind, sticker, text);
@@ -2120,6 +2161,7 @@ function InsertTools({ onAdded }: { onAdded?: () => void }) {
           <AlignLeft />
         </InsertBtn>
       </div>
+      {brochure ? (
       <InsertFold title="Clinic icons" koma="clinic-fold">
       <ClinicIconGrid
         onPick={(id) => {
@@ -2128,7 +2170,22 @@ function InsertTools({ onAdded }: { onAdded?: () => void }) {
         }}
       />
       </InsertFold>
+      ) : null}
       <InsertFold title="Sound effects" koma="sfx-fold">
+        <SfxGrid onPick={(id) => add("sfx", undefined, id)} />
+      </InsertFold>
+      <InsertFold title="Emotion marks" koma="marks-fold">
+      <StickerGrid
+        onPick={(id) => add("sticker", id)}
+      />
+      </InsertFold>
+    </div>
+  );
+}
+
+function SfxGrid({ onPick }: { onPick: (id: string) => void }) {
+  return (
+    <div data-koma="sfx-grid">
       {SFX_GROUPS.map((group) => (
         <div key={group.title} className="mb-2">
           <p className="mb-1 text-[11px] font-medium text-muted">{group.title}</p>
@@ -2137,7 +2194,7 @@ function InsertTools({ onAdded }: { onAdded?: () => void }) {
               <button
                 key={p.id}
                 type="button"
-                onClick={() => add("sfx", undefined, p.id)}
+                onClick={() => onPick(p.id)}
                 className="koma-sfx-hand min-h-11 rounded-md bg-ink/5 px-2.5 text-sm font-normal active:bg-ink/15 hover:bg-ink/10"
                 style={{
                   fontFamily: "var(--font-sfx)",
@@ -2150,12 +2207,6 @@ function InsertTools({ onAdded }: { onAdded?: () => void }) {
           </div>
         </div>
       ))}
-      </InsertFold>
-      <InsertFold title="Emotion marks" koma="marks-fold">
-      <StickerGrid
-        onPick={(id) => add("sticker", id)}
-      />
-      </InsertFold>
     </div>
   );
 }
