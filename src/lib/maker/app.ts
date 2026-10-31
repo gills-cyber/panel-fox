@@ -339,21 +339,24 @@ export function friendlyError(e: unknown): string {
   }
   const http = /^Ollama HTTP (\d+) on \S+: ([\s\S]*)$/.exec(text);
   if (http) {
-    // Ollama's own errors come as {"error": "..."} or from inside a streamed answer
+    // Ollama's own errors come as {"error": "..."} or as plain text inside a streamed answer
     let said = http[2]!.trim();
-    let fromOllama = false;
     try {
       const j = JSON.parse(said) as { error?: unknown };
-      if (typeof j.error === "string") {
-        said = j.error;
-        fromOllama = true;
-      }
+      if (typeof j.error === "string") said = j.error;
     } catch {
-      // an error inside a streamed answer is plain text; a web page is not Ollama
-      fromOllama = http[1] === "500" && !said.startsWith("<");
+      /* plain text */
     }
-    if (!fromOllama) return "Something at that address answered, but it isn’t Ollama. Check the Ollama address in Advanced.";
-    return `Ollama had a problem: ${said.slice(0, 300)}`;
+    // only a web page is clearly something else; anything else is shown as it came
+    if (said.startsWith("<")) return "Something at that address answered, but it isn’t Ollama. Check the Ollama address in Advanced.";
+    const kept = " The images it already looked at are kept, so trying again is quicker.";
+    if (/out of memory|unexpectedly stopped|exit status|CUDA error|alloc/i.test(said)) {
+      return `Ollama ran out of graphics memory and stopped the model. Set “Images looked at together” to 1, or pick smaller models, then try again.${kept} (${said.slice(0, 160)})`;
+    }
+    if (/busy|pending requests/i.test(said)) {
+      return `Ollama was too busy to take the request. Set “Images looked at together” lower, then try again.${kept} (${said.slice(0, 160)})`;
+    }
+    return `Ollama stopped with an error (code ${http[1]}${said ? `: ${said.slice(0, 300)}` : ""}).${kept}`;
   }
   if (text.includes("Missing Ollama models")) {
     return text.replace("Missing Ollama models:", "These models aren’t installed yet:").replace("Pull them with:", "Install them in Terminal with:");
