@@ -341,13 +341,17 @@ export function friendlyError(e: unknown): string {
   if (http) {
     // Ollama's own errors come as {"error": "..."} or from inside a streamed answer
     let said = http[2]!.trim();
+    let fromOllama = false;
     try {
       const j = JSON.parse(said) as { error?: unknown };
-      if (typeof j.error === "string") said = j.error;
+      if (typeof j.error === "string") {
+        said = j.error;
+        fromOllama = true;
+      }
     } catch {
-      /* plain text */
+      // an error inside a streamed answer is plain text; a web page is not Ollama
+      fromOllama = http[1] === "500" && !said.startsWith("<");
     }
-    const fromOllama = /"error"/.test(http[2]!) || http[1] === "500";
     if (!fromOllama) return "Something at that address answered, but it isn’t Ollama. Check the Ollama address in Advanced.";
     return `Ollama had a problem: ${said.slice(0, 300)}`;
   }
@@ -360,7 +364,7 @@ export function friendlyError(e: unknown): string {
   const who = /^Model (\S+) /.exec(text)?.[1];
   const short = who ? who.split("/").pop()!.replace(/-GGUF.*$/i, "").replace(/:.*$/, "") : "The model";
   if (text.includes("ran out of room")) {
-    return `${short}’s answer got too long and was cut off. Try fewer “Pages written at a time”, or a model with a bigger context.${kept}`;
+    return `${short}’s answer got too long and was cut off. Try again, or choose a model that handles longer answers.${kept}`;
   }
   if (text.includes("did not return valid JSON")) {
     return `${short} gave an answer the app couldn’t read. Try again, or choose a different model for this step.${kept}`;

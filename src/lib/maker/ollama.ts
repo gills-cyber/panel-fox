@@ -157,10 +157,9 @@ export class OllamaClient implements ModelClient {
   }
 
   private noThink = true;
-  /** why the last answer ended ("stop", or "length" when it was cut off) */
-  private lastDone = "";
 
-  private async chat(payload: Record<string, unknown>): Promise<string> {
+  /** The streamed answer, and whether it stopped because the context was full. */
+  private async chat(payload: Record<string, unknown>): Promise<{ content: string; cut: boolean }> {
     await this.useModel(String(payload.model));
     // Thinking models (such as qwen3-vl) can write thousands of hidden words per
     // image; the maker only needs the JSON answer, so thinking is turned off.
@@ -175,9 +174,9 @@ export class OllamaClient implements ModelClient {
       this.noThink = false;
       res = await this.request("/api/chat", { ...payload, keep_alive: this.keepAlive, stream: true });
     }
-    this.lastDone = "";
+    let cut = false;
     const reader = res.body?.getReader();
-    if (!reader) return "";
+    if (!reader) return { content: "", cut };
     const dec = new TextDecoder();
     let buf = "";
     let content = "";
@@ -192,7 +191,7 @@ export class OllamaClient implements ModelClient {
         const msg = JSON.parse(line) as { message?: { content?: string }; error?: string; done_reason?: string };
         if (msg.error) throw new OllamaError(`Ollama HTTP 500 on /api/chat: ${msg.error}`);
         content += msg.message?.content ?? "";
-        if (msg.done_reason) this.lastDone = msg.done_reason;
+        if (msg.done_reason) cut = msg.done_reason === "length";
         this.onToken?.(content.length);
       }
       if (done) break;
@@ -201,9 +200,9 @@ export class OllamaClient implements ModelClient {
       const msg = JSON.parse(buf) as { message?: { content?: string }; error?: string; done_reason?: string };
       if (msg.error) throw new OllamaError(`Ollama HTTP 500 on /api/chat: ${msg.error}`);
       content += msg.message?.content ?? "";
-      if (msg.done_reason) this.lastDone = msg.done_reason;
+      if (msg.done_reason) cut = msg.done_reason === "length";
     }
-    return content;
+    return { content, cut };
   }
 
   /**
@@ -230,8 +229,9 @@ export class OllamaClient implements ModelClient {
       const options: Record<string, unknown> = { temperature };
       if (this.numCtx) options.num_ctx = this.numCtx;
       let content: string;
+      let cut: boolean;
       try {
-        content = await this.chat({ model, messages, format: fmt, options });
+        ({ content, cut } = await this.chat({ model, messages, format: fmt, options }));
       } catch (e) {
         if (e instanceof OllamaError && fmt !== "json" && e.message.toLowerCase().includes("format")) {
           fmt = "json"; // an older server without schema support
@@ -240,7 +240,6 @@ export class OllamaClient implements ModelClient {
         }
         throw e;
       }
-      const cut = this.lastDone === "length";
       try {
         return parseJsonLoose(content);
       } catch (e) {
