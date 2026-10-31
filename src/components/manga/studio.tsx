@@ -126,17 +126,42 @@ type StickerTab = "manga" | "sfx" | "clinic" | "logos";
 const WELCOME_KEY = "panelfox-welcome-v1";
 
 /** Shown once, on first launch: the three ways to start. */
-function WelcomeSheet({ open, onChoose }: { open: boolean; onChoose: (c: "ai" | "blank" | "open") => void }) {
+function WelcomeSheet({ open, onChoose }: { open: boolean; onChoose: (c: "ai" | "blank" | "open" | "close") => void }) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const choose = useRef(onChoose);
+  choose.current = onChoose;
   useEffect(() => {
-    if (open) window.setTimeout(() => rootRef.current?.querySelector<HTMLButtonElement>("[data-koma='welcome-ai']")?.focus(), 30);
+    if (!open) return;
+    const before = document.activeElement as HTMLElement | null;
+    const t = window.setTimeout(() => rootRef.current?.querySelector<HTMLButtonElement>("[data-koma='welcome-ai']")?.focus(), 30);
+    // Esc works wherever focus is, and Tab stays on the sheet
+    const onKey = (e: KeyboardEvent) => {
+      const root = rootRef.current;
+      if (!root) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        choose.current("close");
+      } else if (e.key === "Tab") {
+        const items = Array.from(root.querySelectorAll<HTMLButtonElement>("button"));
+        const at = items.indexOf(document.activeElement as HTMLButtonElement);
+        e.preventDefault();
+        const next = at < 0 ? 0 : (at + (e.shiftKey ? -1 : 1) + items.length) % items.length;
+        items[next]?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener("keydown", onKey, true);
+      before?.focus?.();
+    };
   }, [open]);
   if (!open) return null;
   const choices = [
     {
       id: "ai" as const,
       icon: <Sparkles className="size-5" />,
-      title: "Make a Chapter with AI",
+      title: "Make a Chapter with AI…",
       text: "Pick a folder of your images. Panel Fox lays out the pages and writes the speech bubbles.",
       tone: "bg-gradient-to-br from-[#5e9dff] to-[#0062d6] text-white",
     },
@@ -157,17 +182,14 @@ function WelcomeSheet({ open, onChoose }: { open: boolean; onChoose: (c: "ai" | 
   ];
   return (
     <div className="fixed inset-0 z-[130] flex items-center justify-center p-4">
-      <div className="koma-scrim absolute inset-0" aria-hidden />
+      <div className="koma-scrim absolute inset-0" aria-hidden onClick={() => onChoose("close")} />
       <div
         ref={rootRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="welcome-title"
         data-koma-dialog="welcome"
-        onKeyDown={(e) => {
-          e.stopPropagation();
-          if (e.key === "Escape") onChoose("blank");
-        }}
+        onKeyDown={(e) => e.stopPropagation()}
         className="koma-glass-surface relative w-full max-w-[440px] rounded-[18px] p-6 shadow-float"
       >
         <h2 id="welcome-title" className="text-center text-[19px] font-semibold tracking-tight text-ink">
@@ -466,6 +488,10 @@ export function Studio() {
       if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
     }
     function drop(e: DragEvent) {
+      if (makerWindowShowing()) {
+        e.preventDefault();
+        return;
+      }
       if (!isFileDrag(e.dataTransfer)) return;
       e.preventDefault();
       const koma = [...(e.dataTransfer?.files ?? [])].find(isKomaFile);
@@ -912,10 +938,10 @@ export function Studio() {
             aria-label="Make with AI"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => setMakerOpen(true)}
-            className="hidden h-8 shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-b from-[#3b8cff] to-[#0062d6] px-2.5 text-[13px] font-semibold text-white shadow-[inset_0_0_0_0.5px_rgb(255_255_255/0.3),0_1px_3px_rgb(0_80_200/0.35)] transition-[filter,transform] duration-[var(--motion-quick)] hover:brightness-110 active:scale-[0.96] sm:flex xl:px-3.5"
+            className="hidden h-8 shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-b from-[#3b8cff] to-[#0062d6] px-2.5 text-[13px] font-semibold text-white shadow-[inset_0_0_0_0.5px_rgb(255_255_255/0.3),0_1px_3px_rgb(0_80_200/0.35)] transition-[filter,transform] duration-[var(--motion-quick)] hover:brightness-110 active:scale-[0.96] sm:flex lg:px-3.5"
           >
             <Sparkles className="size-4" />
-            <span className="hidden xl:inline">Make with AI</span>
+            <span className="hidden lg:inline">Make with AI</span>
           </button>
 
           <ToolTipBtn
@@ -1489,6 +1515,7 @@ export function Studio() {
           }
           if (choice === "ai") setMakerOpen(true);
           else if (choice === "open") setProjectsOpen(true);
+          else if (choice === "blank") handleNew();
         }}
       />
     </div>
