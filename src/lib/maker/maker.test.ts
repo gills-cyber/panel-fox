@@ -208,3 +208,28 @@ test("the other model is unloaded before a model is used", async () => {
   assert.ok(!calls.some((c) => c.includes("other-app")));
   assert.deepEqual(calls.slice(4, 6), ["/api/ps ", "/api/chat big:32b"]);
 });
+
+test("a stopped run keeps the images it looked at and the next run carries on", async () => {
+  const images = [
+    { name: "01.png", bytes: png(60, 90, [200, 80, 80]) },
+    { name: "02.png", bytes: png(90, 60, [80, 200, 80]) },
+    { name: "03.png", bytes: png(60, 90, [80, 80, 200]) },
+  ];
+  const config = { characters: [{ name: "Aiko" }] };
+  const saves: { analyses: Record<string, unknown>; who: unknown }[] = [];
+  await run(
+    { images, config, mock: true, cache: { load: async () => null, save: async (v) => void saves.push(JSON.parse(JSON.stringify(v))) } },
+    () => {},
+  );
+  // saved after each image, not only at the end
+  assert.deepEqual(saves.slice(0, 3).map((v) => Object.keys(v.analyses).length), [1, 2, 3]);
+  // pretend the run was stopped after two images
+  const partial = saves[1]!;
+  const lines: string[] = [];
+  await run(
+    { images, config, mock: true, cache: { load: async () => partial as never, save: async () => {} } },
+    (l) => lines.push(l),
+  );
+  assert.ok(lines.some((l) => /vision 2\/3: reusing 2 images/.test(l)));
+  assert.equal(lines.filter((l) => l.startsWith("[TIME] Image ")).length, 1, "only the missing image is looked at");
+});

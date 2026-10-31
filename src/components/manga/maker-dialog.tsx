@@ -874,8 +874,17 @@ export function MakerDialog({ open, onClose }: { open: boolean; onClose: () => v
                   onClick={() => {
                     stoppedRef.current = true;
                     runRef.current?.stop();
+                    const seen = progress ? /^(\d+) of (\d+) images done$/.exec(progress.detail) : null;
+                    const lookedAt = seen ? Number(seen[1]) : 0;
+                    const pastImages = progress ? stepIndex(progress.step) > stepIndex("looking") : false;
                     setProgress(null);
-                    toast.message("Stopped. Nothing was changed.");
+                    toast.message(
+                      s?.advanced.testMode || (!pastImages && !lookedAt)
+                        ? "Stopped. Nothing was changed."
+                        : pastImages
+                          ? "Stopped. The images it looked at are kept, so Create will go straight to writing."
+                          : `Stopped. The ${lookedAt === 1 ? "image" : `${lookedAt} images`} it looked at ${lookedAt === 1 ? "is" : "are"} kept, so Create will carry on from there.`,
+                    );
                   }}
                 >
                   Stop

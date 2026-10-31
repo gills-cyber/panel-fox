@@ -138,6 +138,8 @@ export async function run(opt: RunOptions, log: (s: string) => void = () => {}):
   let analyses: Map<string, Analysis> | null = null;
   let fromCache = false;
   const who = await visionSignature({ ...opt, visionModel }, cfg);
+  // images a stopped (or failed) run already looked at, picked up where it left off
+  const known = new Map<string, Analysis>();
   if (opt.cache) {
     const cached = await opt.cache.load();
     const ca = cached?.analyses;
@@ -150,11 +152,15 @@ export async function run(opt: RunOptions, log: (s: string) => void = () => {}):
         fromCache = true;
         say("using cached vision results");
         if (cached.who === undefined) await opt.cache.save({ analyses: ca, who }).catch(() => {});
+      } else if (current && cached.who !== undefined && same(cached.who, who)) {
+        for (const k of keys) if (byName.has(k)) known.set(k, ca[k]!);
       }
     }
   }
   if (analyses === null) {
     say("vision pass");
+    const sofar: Record<string, Analysis> = Object.fromEntries(known);
+    const cache = opt.cache;
     analyses = await analyseImages(
       client, visionModel, cfg, images, forModel, opt.useRefs ?? true,
       (s) => {
@@ -162,6 +168,16 @@ export async function run(opt: RunOptions, log: (s: string) => void = () => {}):
         say(s);
       },
       opt.parallel ?? 1,
+      {
+        known,
+        // saved after every image, so pressing Stop keeps what is done
+        onEach: cache
+          ? (n, a) => {
+              sofar[n] = a;
+              void cache.save({ analyses: { ...sofar }, who }).catch(() => {});
+            }
+          : undefined,
+      },
     );
     if (opt.cache) await opt.cache.save({ analyses: Object.fromEntries(analyses), who }).catch(() => {});
     // the cache keeps what the model saw; the steps below change the analyses in memory only
