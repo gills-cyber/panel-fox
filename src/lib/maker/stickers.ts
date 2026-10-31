@@ -92,7 +92,9 @@ export function placeStickers(pages: Page[], analyses: Map<string, Analysis>, ov
         const art = ANIME_STICKERS.find((s) => s.id === `anime-${rule.file}`);
         if (!art) continue;
         // sized to the head; the art's own shape decides the height
-        const w = Math.min(Math.max(head[2] * rule.scale, PAGE_W * 0.04), PAGE_W * 0.3);
+        // faces too small to read (a crowd in the distance) get no sticker, rather than an oversized one
+        if (head[2] < PAGE_W * 0.05) continue;
+        const w = Math.min(Math.max(head[2] * rule.scale, PAGE_W * 0.015), PAGE_W * 0.3);
         const h = (w * (art.h ?? 20)) / (art.w ?? 20);
         for (const mirror of [false, true]) {
           const want = spotRect(rule.spot, head, w, h, mirror);
