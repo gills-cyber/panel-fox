@@ -11,24 +11,26 @@ import type { Analysis, Box } from "./vision.ts";
 
 type Spot = "corner" | "side" | "cheek" | "blush" | "above" | "ring";
 
-/** In order of priority: the first rule that matches a person is used. */
 /**
  * What the dialogue must show for each sticker: a sticker is only added when the
- * person's face AND their own lines in that panel both call for it.
+ * person's face AND their own lines in that panel both call for it. Each cue
+ * looks for something the genre uses for that feeling, not everyday words.
  */
-const STUTTER = /\b(\w{1,3})-\1/i; // "I-I", "w-wait"
+// a stutter: "I-I", "w-wait", "y-you" (not "so-so", "bye-bye" or "2-2")
+const STUTTER = /(^|[\s"“(…])(?:(i)-i\b|([a-z])-\3[a-z]+)/i;
 const CUES: Record<string, (text: string, kind: string) => boolean> = {
-  vein: (t, k) => /\b(damn|dammit|idiot|moron|shut up|how dare|get out|bastard|annoying|tch|tsk|grr+|enough|i said|you jerk|seriously)\b/i.test(t) || ((k === "shout" || k === "scream") && /!/.test(t) && !/\?/.test(t)),
-  blush: (t) => STUTTER.test(t) || /\b(don'?t look|stop staring|embarrass\w*|it'?s not like|baka|so shy|you think i'?m|cute\?)\b/i.test(t),
-  tear: (t) => /\b(sob\w*|sniff\w*|hic|cry\w*|tears?|waa+h*|uu+|i'?m so sorry|please don'?t go)\b/i.test(t),
-  sweat: (t) => STUTTER.test(t) || /\b(u+m+|u+h+|er+m*|a-ha|ahaha|heh+|uh-oh|oh no|wait,? wait|that'?s not what|i can explain|sorry,? sorry)\b/i.test(t),
-  shock: (t, k) => /(\?!|!\?)/.test(t) || /\b(no way|impossible|what the|wh+a+t*\?|huh\?|eh\?)/i.test(t) || k === "scream",
-  zzz: (t) => /\b(z{2,}|sleep\w*|tired|yawn\w*|snore\w*|so sleepy|five more minutes)\b/i.test(t),
-  heart: (t) => /[♥❤]|\b(i love|love you|darling|my dear|so beautiful|so handsome|adore|sweetheart)\b/i.test(t),
-  notes: (t) => /[♪♫]|\b(la la|hmm hmm|singing|sing)\b/i.test(t),
-  sparkle: (t) => /\b(amazing|awesome|wow+|yay+|incredible|so cool|can'?t wait|finally|it'?s beautiful)\b/i.test(t),
+  vein: (t) => /\b(dammit|idiot|moron|shut up|how dare you|get out|bastard|you jerk|tch|tsk|grr+)\b/i.test(t),
+  blush: (t) => (STUTTER.test(t) && /\b(you|me|i|look|that|this)\b/i.test(t)) || /\b(don't look|stop staring|so embarrassing|i'm embarrassed|baka)\b/i.test(t),
+  tear: (t) => /\b(sobs?|sobbing|sniff(le)?s?|hic|cr(y|ies|ied|ying)|tears|waa+h+|uu+|i'm so sorry|please don't go)\b/i.test(t),
+  sweat: (t) => STUTTER.test(t) || /\b(u+m+|u+h+|uh-oh|ahaha|ehehe|wait,? wait|that's not what|i can explain|sorry,? sorry)\b/i.test(t),
+  shock: (t, k) => /(\?!|!\?)/.test(t) || /\b(no way|impossible|eh\?)/i.test(t) || k === "scream",
+  zzz: (t) => /\b(z{3,}|so sleepy|five more minutes|\*?yawn\*?|\*?snore\*?)\b/i.test(t),
+  heart: (t) => /[♥❤]|\b(i love you|love you|darling|my dear|sweetheart)\b/i.test(t),
+  notes: (t) => /[♪♫]|\b(la la|hmm hmm hmm)\b/i.test(t),
+  sparkle: (t) => /\b(amazing|awesome|yay+|incredible|so cool)\b/i.test(t),
 };
 
+/** The face (expression and action from the vision step) that each sticker needs. */
 const RULES: { re: RegExp; file: string; spot: Spot; scale: number }[] = [
   { re: /\b(angry|anger|furious|rage|raging|irritat\w*|annoyed|scowl\w*|glar\w*|livid|seething|fuming)\b/, file: "vein", spot: "corner", scale: 0.42 },
   { re: /\b(blush\w*|embarrass\w*|shy|bashful|fluster\w*|sheepish|coy)\b/, file: "blush", spot: "blush", scale: 0.75 },
@@ -102,77 +104,82 @@ export function placeStickers(
     const list = overlays.get(page.id) ?? [];
     overlays.set(page.id, list);
     const taken: Rect[] = list.map((o) => [(o.x / 100) * PAGE_W, (o.y / 100) * PAGE_H, (o.w / 100) * PAGE_W, (o.h / 100) * PAGE_H]);
-    let onPage = 0;
-    for (const panel of page.panels) {
-      // a light touch: at most one sticker per page
-      if (onPage >= MAX_PER_PAGE) break;
+    // every face on the page that calls for a sticker, strongest first
+    const found: { score: number; order: number; rule: (typeof RULES)[number]; head: Rect; prect: Rect }[] = [];
+    page.panels.forEach((panel, pi) => {
       const a = analyses.get(panel.item.name);
-      if (!a) continue;
+      if (!a) return;
       const prect: Rect = [(panel.x / 100) * PAGE_W, (panel.y / 100) * PAGE_H, (panel.w / 100) * PAGE_W, (panel.h / 100) * PAGE_H];
-      let done = false;
       for (const c of a.characters ?? []) {
-        if (done) break;
         const said = `${c.expression ?? ""} ${c.action ?? ""}`.toLowerCase();
         // this person's own lines in the panel (narration and other speakers don't count)
         const own = (linesIn.get(panel.id) ?? []).filter((l) => l.kind !== "narration" && (c.id ? l.speaker_id === c.id : l.speaker === c.name));
-        const rule = RULES.find((r) => r.re.test(said) && own.some((l) => CUES[r.file]?.(l.text, l.kind)));
-        if (!rule) continue;
-        const head = headRect(panel, c.head_box as Box);
-        if (!head) continue;
-        // the face must be mostly inside the panel's frame
-        if (overlapArea(head, prect) < 0.6 * head[2] * head[3]) continue;
-        const art = ANIME_STICKERS.find((s) => s.id === `anime-${rule.file}`);
-        if (!art) continue;
-        // sized to the head; the art's own shape decides the height
-        // faces too small to read (a crowd in the distance) get no sticker, rather than an oversized one
-        if (head[2] < PAGE_W * 0.05) continue;
-        const w = Math.min(Math.max(head[2] * rule.scale, PAGE_W * 0.015), PAGE_W * 0.3);
-        const h = (w * (art.h ?? 20)) / (art.w ?? 20);
-        for (const mirror of [false, true]) {
-          const want = spotRect(rule.spot, head, w, h, mirror);
-          if (want[2] > prect[2] - 8 || want[3] > prect[3] - 8) break;
-          // keep it inside the panel, but only by a nudge: pushed further it would land on the face
-          const r: Rect = [
-            Math.min(Math.max(want[0], prect[0] + 4), prect[0] + prect[2] - want[2] - 4),
-            Math.min(Math.max(want[1], prect[1] + 4), prect[1] + prect[3] - want[3] - 4),
-            want[2],
-            want[3],
-          ];
-          if (Math.abs(r[0] - want[0]) > 0.25 * w || Math.abs(r[1] - want[1]) > 0.25 * h) continue;
-          // and clear of the bubbles and other stickers
-          if (taken.some((t) => overlapArea(r, t) > 0.15 * r[2] * r[3])) continue;
-          taken.push(r);
-          n++;
-          const sticker = {
-            id: `sticker-${n}`,
-            kind: "sticker",
-            x: Math.round((r[0] / PAGE_W) * 10000) / 100,
-            y: Math.round((r[1] / PAGE_H) * 10000) / 100,
-            w: Math.round((r[2] / PAGE_W) * 10000) / 100,
-            h: Math.round((r[3] / PAGE_H) * 10000) / 100,
-            text: "",
-            fontSize: 11,
-            bold: false,
-            italic: false,
-            color: "",
-            fill: "#ffffff",
-            stroke: "#161412",
-            tailX: 50,
-            tailY: 128,
-            balloonStyle: "oval",
-            fontId: "comic",
-            align: "center",
-            autoFit: false,
-            scriptLineId: null,
-            speakerId: null,
-            src: art.src,
-          } as unknown as Overlay;
-          list.push(sticker);
-          placed++;
-          onPage++;
-          done = true;
+        for (const rule of RULES) {
+          if (!rule.re.test(said)) continue;
+          const hits = own.filter((l) => CUES[rule.file]?.(l.text.replace(/[’‘]/g, "'"), l.kind)).length;
+          if (!hits) continue;
+          const head = headRect(panel, c.head_box as Box);
+          // the face must be big enough to read and mostly inside the panel's frame
+          if (!head || head[2] < PAGE_W * 0.05 || overlapArea(head, prect) < 0.6 * head[2] * head[3]) break;
+          // more lines with the feeling, and a shout or scream, make it stronger
+          const loud = own.some((l) => l.kind === "shout" || l.kind === "scream") ? 0.5 : 0;
+          found.push({ score: hits + loud, order: pi, rule, head, prect });
           break;
         }
+      }
+    });
+    found.sort((x, y) => y.score - x.score || x.order - y.order);
+    let onPage = 0;
+    for (const { rule, head, prect } of found) {
+      // a light touch: at most one sticker per page
+      if (onPage >= MAX_PER_PAGE) break;
+      const art = ANIME_STICKERS.find((s) => s.id === `anime-${rule.file}`);
+      if (!art) continue;
+      // sized to the head; the art's own shape decides the height
+      const w = Math.min(Math.max(head[2] * rule.scale, PAGE_W * 0.015), PAGE_W * 0.3);
+      const h = (w * (art.h ?? 20)) / (art.w ?? 20);
+      for (const mirror of [false, true]) {
+        const want = spotRect(rule.spot, head, w, h, mirror);
+        if (want[2] > prect[2] - 8 || want[3] > prect[3] - 8) break;
+        // keep it inside the panel, but only by a nudge: pushed further it would land on the face
+        const r: Rect = [
+          Math.min(Math.max(want[0], prect[0] + 4), prect[0] + prect[2] - want[2] - 4),
+          Math.min(Math.max(want[1], prect[1] + 4), prect[1] + prect[3] - want[3] - 4),
+          want[2],
+          want[3],
+        ];
+        if (Math.abs(r[0] - want[0]) > 0.25 * w || Math.abs(r[1] - want[1]) > 0.25 * h) continue;
+        // and clear of the bubbles and other stickers
+        if (taken.some((t) => overlapArea(r, t) > 0.15 * r[2] * r[3])) continue;
+        taken.push(r);
+        n++;
+        list.push({
+          id: `sticker-${n}`,
+          kind: "sticker",
+          x: Math.round((r[0] / PAGE_W) * 10000) / 100,
+          y: Math.round((r[1] / PAGE_H) * 10000) / 100,
+          w: Math.round((r[2] / PAGE_W) * 10000) / 100,
+          h: Math.round((r[3] / PAGE_H) * 10000) / 100,
+          text: "",
+          fontSize: 11,
+          bold: false,
+          italic: false,
+          color: "",
+          fill: "#ffffff",
+          stroke: "#161412",
+          tailX: 50,
+          tailY: 128,
+          balloonStyle: "oval",
+          fontId: "comic",
+          align: "center",
+          autoFit: false,
+          scriptLineId: null,
+          speakerId: null,
+          src: art.src,
+        } as unknown as Overlay);
+        placed++;
+        onPage++;
+        break;
       }
     }
   }
