@@ -458,7 +458,7 @@ export function MakerDialog({ open, onClose }: { open: boolean; onClose: () => v
           </div>
           <div className="min-w-[12rem] flex-1">
             <h2 id="maker-title" className="text-[15px] font-semibold leading-tight text-ink">
-              New Chapter from Images
+              New Chapter with AI
             </h2>
             <p className="mt-0.5 text-[12px] leading-snug text-muted">
               Turn a folder of your images into a finished manga chapter.{" "}

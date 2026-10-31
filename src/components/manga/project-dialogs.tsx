@@ -472,7 +472,7 @@ export function OpenProjectDialog({
             </Button>
             {onMakeChapter ? (
               <Button type="button" variant="ghost" size="sm" data-koma="project-make" onClick={onMakeChapter}>
-                New from Images…
+                New with AI…
               </Button>
             ) : null}
           </div>
