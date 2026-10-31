@@ -232,6 +232,8 @@ export function MakerDialog({ open, onClose }: { open: boolean; onClose: () => v
   const [dragging, setDragging] = useState(false);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [started, setStarted] = useState(0);
+  // When the first image finished, so model loading is not counted in the time-left estimate.
+  const [firstImage, setFirstImage] = useState<{ at: number; done: number } | null>(null);
   const [now, setNow] = useState(0);
   const [finishing, setFinishing] = useState(false);
   const runRef = useRef<RunHandle | null>(null);
@@ -348,7 +350,17 @@ export function MakerDialog({ open, onClose }: { open: boolean; onClose: () => v
     setStarted(Date.now());
     setNow(Date.now());
     setProgress({ step: "starting", detail: "", fraction: 0.02, notes: [], timings: [] });
-    const handle = startChapter({ chosen, settings, onProgress: setProgress });
+    setFirstImage(null);
+    let firstSeen = false;
+    const onProgress = (p: Progress) => {
+      const m = p.step === "looking" ? /^(\d+) of \d+ images done$/.exec(p.detail) : null;
+      if (!firstSeen && m && Number(m[1]) > 0) {
+        firstSeen = true;
+        setFirstImage({ at: Date.now(), done: Number(m[1]) });
+      }
+      setProgress(p);
+    };
+    const handle = startChapter({ chosen, settings, onProgress });
     runRef.current = handle;
     try {
       const { file, notes, timings } = await handle.done;
@@ -514,7 +526,11 @@ export function MakerDialog({ open, onClose }: { open: boolean; onClose: () => v
                 const total = m ? Number(m[2]) : 0;
                 const sofar = elapsed < 60 ? "" : ` ${Math.floor(elapsed / 60)} min so far.`;
                 if (done > 0 && total > done) {
-                  const left = Math.round(((elapsed / done) * (total - done)) / 60);
+                  const each =
+                    firstImage && done > firstImage.done
+                      ? (now - firstImage.at) / 1000 / (done - firstImage.done)
+                      : elapsed / done;
+                  const left = Math.round((each * (total - done)) / 60);
                   return `Working…${sofar} About ${left < 1 ? "a minute" : `${left} min`} left for the images.`;
                 }
                 return elapsed < 60 ? "Working… big models can take a while." : `Working…${sofar}`;

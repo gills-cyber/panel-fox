@@ -165,7 +165,9 @@ export class OllamaClient implements ModelClient {
     try {
       res = await this.request("/api/chat", { ...payload, ...(this.noThink ? { think: false } : {}), keep_alive: this.keepAlive, stream: true });
     } catch (e) {
-      if (!(this.noThink && e instanceof OllamaError && /think/i.test(e.message))) throw e;
+      // only a 400 that complains about the flag itself, not one that merely names a "thinking" model
+      const said = e instanceof OllamaError ? e.message.split(String(payload.model)).join("") : "";
+      if (!(this.noThink && /HTTP 400/.test(said) && /think/i.test(said))) throw e;
       this.noThink = false;
       res = await this.request("/api/chat", { ...payload, keep_alive: this.keepAlive, stream: true });
     }
