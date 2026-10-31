@@ -276,6 +276,11 @@ export function progressFromLog(line: string, p: Progress): Progress {
     const reused = l.includes("reusing") ? i : p.reused;
     return { ...next, reused, step: "looking", detail: `${i} of ${n} images done`, fraction: 0.05 + (0.5 * i) / Math.max(1, n) };
   }
+  if (l.startsWith("note: ")) {
+    const text = l.slice(6).trim();
+    if (!next.notes.includes(text)) next.notes.push(text);
+    return next;
+  }
   if (l.startsWith("mock mode")) next.notes.push("Test run: placeholder text, no models were used.");
   else if (l.includes("using cached vision")) return { ...next, step: "looking", detail: "Already seen these images, reusing", fraction: 0.5 };
   else if (l.includes("sketching outline")) return { ...next, step: "ordering", detail: "Sketching the story", fraction: 0.56 };

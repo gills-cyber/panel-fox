@@ -121,7 +121,14 @@ export async function run(opt: RunOptions, log: (s: string) => void = () => {}):
       opt.signal,
       opt.keepAlive ?? 3600,
     );
-    if (visionModel !== dialogueModel) (client as OllamaClient).models = [visionModel, dialogueModel];
+    if (client instanceof OllamaClient) {
+    if (visionModel !== dialogueModel) {
+      client.models = [visionModel, dialogueModel];
+      // looking at one image needs far less room than writing pages; half the memory per request
+      client.smallCtx = { [visionModel]: 8192 };
+    }
+    client.onNote = (text) => say(`note: ${text}`);
+  }
     const missing = await client.checkModels([visionModel, dialogueModel]);
     if (missing.length) {
       throw new PipelineError(

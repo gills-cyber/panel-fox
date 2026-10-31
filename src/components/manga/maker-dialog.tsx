@@ -537,6 +537,11 @@ export function MakerDialog({ open, onClose }: { open: boolean; onClose: () => v
                 return elapsed < 60 ? "Working… big models can take a while." : `Working…${sofar}`;
               })()}
             </p>
+            {progress.notes.map((n) => (
+              <p key={n} className="mt-1 text-[11px] text-ink-soft">
+                {n}
+              </p>
+            ))}
             <p className="mt-1 text-[11px] text-muted">You can keep this window open and wait; your current manga is saved first.</p>
           </div>
         ) : (

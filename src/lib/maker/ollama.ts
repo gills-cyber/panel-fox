@@ -131,6 +131,64 @@ export class OllamaClient implements ModelClient {
   private active: string | null = null;
   private switching: Promise<void> | null = null;
 
+  /** A smaller context for some models (the vision model), used when the request fits in it. */
+  smallCtx: Record<string, number> = {};
+  /** Plain-language notes for the person, such as a model that doesn't fit on the graphics card. */
+  onNote?: (text: string) => void;
+  /** At most this many requests at once; drops to 1 after Ollama runs out of memory. */
+  private limit = Infinity;
+  private running = 0;
+  private waiting: (() => void)[] = [];
+  private checkedFit = new Set<string>();
+
+  private async slot(): Promise<() => void> {
+    while (this.running >= this.limit) await new Promise<void>((r) => this.waiting.push(r));
+    this.running++;
+    let open = true;
+    return () => {
+      if (!open) return;
+      open = false;
+      this.running--;
+      this.waiting.shift()?.();
+    };
+  }
+
+  /** After a model's first answer: warn when Ollama could not fit all of it on the graphics card. */
+  private async checkFit(model: string): Promise<void> {
+    if (!this.onNote || this.checkedFit.has(model)) return;
+    this.checkedFit.add(model);
+    try {
+      const res = await this.request("/api/ps");
+      const body = (await res.json()) as { models?: { name?: string; model?: string; size?: number; size_vram?: number }[] };
+      const plain = (n: string) => (n.endsWith(":latest") ? n.slice(0, -7) : n);
+      const hit = (body.models ?? []).find((m) => plain(m.name || m.model || "") === plain(model));
+      if (!hit || !hit.size || hit.size_vram === undefined) return;
+      const onGpu = hit.size_vram / hit.size;
+      if (onGpu < 0.95) {
+        const short = model.split("/").pop()!.replace(/-GGUF.*$/i, "").replace(/:.*$/, "");
+        this.onNote?.(
+          `${short} doesn’t fit on your graphics card (${Math.round(onGpu * 100)}% fits), so part of it runs on the much slower processor. A smaller model would be faster.`,
+        );
+      }
+    } catch {
+      /* only a hint */
+    }
+  }
+
+  /** Free the graphics card after Ollama ran out of memory: unload this run's models. */
+  private async freeMemory(model: string): Promise<void> {
+    for (const m of new Set([...this.models, model])) {
+      try {
+        const res = await this.request("/api/generate", { model: m, keep_alive: 0 });
+        await res.text();
+      } catch {
+        /* best effort */
+      }
+    }
+    this.active = null;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+
   private async useModel(model: string): Promise<void> {
     if (!this.models.length) return;
     if (this.switching) await this.switching;
@@ -168,6 +226,29 @@ export class OllamaClient implements ModelClient {
 
   /** The streamed answer, and whether it stopped because the context was full. */
   private async chat(payload: Record<string, unknown>): Promise<{ content: string; cut: boolean }> {
+    const model = String(payload.model);
+    for (let attempt = 0; ; attempt++) {
+      const done = await this.slot();
+      try {
+        const out = await this.chatOnce(payload);
+        void this.checkFit(model);
+        return out;
+      } catch (e) {
+        const memory = e instanceof OllamaError && /out of memory|CUDA error|cudaMalloc|unable to allocate|unexpectedly stopped|runner process has terminated/i.test(e.message);
+        if (!memory || attempt >= 1 || this.signal?.aborted) throw e;
+        // one request at a time from now on, with the memory freed first
+        if (this.limit !== 1) this.onNote?.("Ollama ran out of memory, so the rest is done one request at a time.");
+        this.limit = 1;
+        done();
+        await this.freeMemory(model);
+        continue;
+      } finally {
+        done();
+      }
+    }
+  }
+
+  private async chatOnce(payload: Record<string, unknown>): Promise<{ content: string; cut: boolean }> {
     await this.useModel(String(payload.model));
     // Thinking models (such as qwen3-vl) can write thousands of hidden words per
     // image; the maker only needs the JSON answer, so thinking is turned off.
@@ -236,6 +317,12 @@ export class OllamaClient implements ModelClient {
     for (let attempt = 0; attempt <= retries; attempt++) {
       const options: Record<string, unknown> = { temperature };
       if (this.numCtx) options.num_ctx = this.numCtx;
+      // the vision model gets a smaller context when the request fits: much less graphics memory
+      const small = this.smallCtx[model];
+      if (small && this.numCtx && small < this.numCtx) {
+        const tokens = (system.length + user.length) / 3 + (images?.length ?? 0) * 1300 + 2000;
+        if (tokens < small * 0.8) options.num_ctx = small;
+      }
       let content: string;
       let cut: boolean;
       try {

@@ -273,3 +273,58 @@ test("an answer cut off by a full context is reported as such, not asked again",
   }
   assert.equal(calls, 1);
 });
+
+test("after Ollama runs out of memory the request is retried, one at a time", async () => {
+  const { OllamaClient } = await import("./ollama.ts");
+  const calls: string[] = [];
+  let failures = 1;
+  let live = 0;
+  let most = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    const path = new URL(url).pathname;
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    calls.push(`${path}${body.keep_alive === 0 ? " unload" : ""}`);
+    if (path !== "/api/chat") return new Response(JSON.stringify({ models: [] }));
+    live++;
+    most = Math.max(most, live);
+    await new Promise((r) => setTimeout(r, 5));
+    live--;
+    if (failures-- > 0) return new Response('{"error":"llama runner process has terminated: CUDA error: out of memory"}', { status: 500 });
+    return new Response(JSON.stringify({ message: { content: '{"ok": true}' }, done: true }) + "\n");
+  }) as typeof fetch;
+  const notes: string[] = [];
+  try {
+    const c = new OllamaClient("localhost:11434");
+    c.onNote = (n) => notes.push(n);
+    const first = c.chatJson("m", "s", "u");
+    await new Promise((r) => setTimeout(r, 1));
+    const rest = await Promise.all([c.chatJson("m", "s", "u"), c.chatJson("m", "s", "u")]);
+    assert.deepEqual(await first, { ok: true });
+    assert.deepEqual(rest, [{ ok: true }, { ok: true }]);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.ok(calls.includes("/api/generate unload"), "memory is freed before the retry");
+  assert.ok(notes.some((n) => n.includes("one request at a time")));
+});
+
+test("the vision model gets a smaller context when the request fits", async () => {
+  const { OllamaClient } = await import("./ollama.ts");
+  const sent: Record<string, unknown>[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    sent.push(JSON.parse(String(init.body)));
+    return new Response(JSON.stringify({ message: { content: "{}" }, done: true }) + "\n");
+  }) as typeof fetch;
+  try {
+    const c = new OllamaClient("localhost:11434", 16384);
+    c.smallCtx = { eyes: 8192 };
+    await c.chatJson("eyes", "s", "u", ["img"]);
+    await c.chatJson("eyes", "s", "x".repeat(30000));
+    await c.chatJson("pen", "s", "u");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.deepEqual(sent.map((b) => (b.options as { num_ctx: number }).num_ctx), [8192, 16384, 16384]);
+});
