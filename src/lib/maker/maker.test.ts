@@ -328,3 +328,29 @@ test("the vision model gets a smaller context when the request fits", async () =
   }
   assert.deepEqual(sent.map((b) => (b.options as { num_ctx: number }).num_ctx), [8192, 16384, 16384]);
 });
+
+test("faces that call for it get a chibi sticker, sized to the head and clear of bubbles", async () => {
+  const { MockClient } = await import("./mock.ts");
+  const { ANALYSIS_SCHEMA } = await import("./vision.ts");
+  const images = Array.from({ length: 4 }, (_, i) => ({ name: `0${i + 1}.png`, bytes: png(60, 90, [i * 50, 80, 80]) }));
+  const cfgIn = { characters: [{ name: "Aiko" }] };
+  const mock = new MockClient(loadConfig(cfgIn));
+  const client = {
+    checkModels: () => mock.checkModels(),
+    async chatJson(model: string, system: string, user: string, imgs?: string[] | null, schema?: Record<string, unknown> | null) {
+      const out = (await mock.chatJson(model, system, user, imgs, schema)) as { characters?: { expression: string }[] };
+      if (schema === ANALYSIS_SCHEMA) for (const c of out.characters ?? []) c.expression = "nervous, sweating";
+      return out;
+    },
+  };
+  const lines: string[] = [];
+  const { file } = await run({ images, config: cfgIn, mock: true, client, stickers: true }, (l) => lines.push(l));
+  const all = file.doc.pages.flatMap((p) => p.overlays as { kind: string; src?: string; x: number; y: number; w: number; h: number }[]);
+  const stickers = all.filter((o) => o.kind === "sticker");
+  assert.ok(stickers.length >= 1, lines.find((l) => l.startsWith("stickers")));
+  assert.ok(stickers.every((s) => s.src === "/stickers/anime/sweat.webp"));
+  assert.ok(stickers.every((s) => s.w > 0 && s.w < 30 && s.x >= 0 && s.x + s.w <= 100 && s.y >= 0 && s.y + s.h <= 100));
+  // off unless asked for
+  const plain = await run({ images, config: cfgIn, mock: true, client }, () => {});
+  assert.ok(!plain.file.doc.pages.some((p) => (p.overlays as { kind: string }[]).some((o) => o.kind === "sticker")));
+});

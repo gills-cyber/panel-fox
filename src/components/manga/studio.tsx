@@ -2272,9 +2272,12 @@ function SfxGrid({ onPick }: { onPick: (id: string) => void }) {
                 key={p.id}
                 type="button"
                 onClick={() => onPick(p.id)}
-                className="koma-sfx-hand min-h-11 rounded-md bg-ink/5 px-2.5 text-sm font-normal active:bg-ink/15 hover:bg-ink/10"
+                className="koma-sfx-chibi min-h-11 rounded-md bg-ink/5 px-2.5 text-sm font-normal text-[#ff5d7a] active:bg-ink/15 hover:bg-ink/10"
                 style={{
-                  fontFamily: "var(--font-sfx)",
+                  fontFamily: "var(--font-sfx-chibi)",
+                  WebkitTextStroke: "0.12em #4a3346",
+                  paintOrder: "stroke fill",
+                  letterSpacing: "0.04em",
                   transform: `rotate(${((i % 5) - 2) * 3}deg)`,
                 }}
               >

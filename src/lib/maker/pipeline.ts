@@ -3,6 +3,7 @@ import { placeBubbles } from "./bubbles.ts";
 import { loadConfig, type ConfigInput, type StoryConfig } from "./config.ts";
 import { framePanels, planCrop, type Crop } from "./crop.ts";
 import { writeScript } from "./dialogue.ts";
+import { placeStickers } from "./stickers.ts";
 import { base64, imageSize, sortImages, type ImageFile } from "./imageutil.ts";
 import { buildKoma, validateKoma, type KomaFile, MAKER_VERSION } from "./koma.ts";
 import { buildLayout, layoutOptions } from "./layout.ts";
@@ -46,6 +47,8 @@ export type RunOptions = {
   parallel?: number;
   /** how long Ollama keeps models loaded after each call, in seconds (-1: until Ollama quits) */
   keepAlive?: number;
+  /** add chibi stickers (sweat drops, anger marks, …) where faces call for them */
+  stickers?: boolean;
   cache?: VisionCache | null;
   /** a model client to use instead of Ollama (tests) */
   client?: ModelClient;
@@ -277,6 +280,7 @@ export async function run(opt: RunOptions, log: (s: string) => void = () => {}):
 
   // 6. bubbles + project
   const overlays = await placeBubbles(pages, script, analyses, rtl, cfg.reader ? cfg.reader.id : null, pause);
+  if (opt.stickers) say(`stickers: ${placeStickers(pages, analyses, overlays)}`);
   const name = opt.name || cfg.title || opt.folderName || "Chapter";
   const file = buildKoma(name, cfg, pages, script, overlays, byName, rtl);
   const added = cfg.characters.filter((c) => c.added && !c.pov).map((c) => c.name);

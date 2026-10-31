@@ -29,6 +29,7 @@
   --font-comic: "M PLUS Rounded 1c", Nunito, "Comic Neue", "Comic Sans MS",
     "Chalkboard SE", sans-serif;
   --font-sfx: "Gochi Hand", "Permanent Marker", "Yomogi", "Comic Neue", cursive;
+  --font-sfx-chibi: "Mochiy Pop One", "M PLUS Rounded 1c", Nunito, sans-serif;
   --font-nunito: Nunito, "M PLUS Rounded 1c", sans-serif;
   --font-quicksand: Quicksand, Nunito, sans-serif;
   --font-outfit: Outfit, Inter, sans-serif;
@@ -283,6 +284,11 @@ input[type="file"] {
 
 .koma-sfx-hand {
   filter: url(#koma-ink-sfx);
+}
+
+/* chibi sound effects: soft plum outline and a small drop shadow, like the stickers */
+.koma-sfx-chibi {
+  filter: drop-shadow(0 0.06em 0 rgb(74 51 70 / 0.3));
 }
 
 [data-sonner-toaster] {

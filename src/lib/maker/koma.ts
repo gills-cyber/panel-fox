@@ -70,7 +70,7 @@ export function buildKoma(
   const overlayForLine = new Map<string, string>();
   for (const p of pages) {
     const pageOverlays = (overlays.get(p.id) ?? []).map(withOverlayDefaults);
-    for (const o of pageOverlays) overlayForLine.set(o.scriptLineId, o.id);
+    for (const o of pageOverlays) if (o.scriptLineId) overlayForLine.set(o.scriptLineId, o.id);
     outPages.push({
       id: p.id,
       title: p.title,
@@ -188,7 +188,10 @@ export function validateKoma(file: KomaFile): string[] {
       for (const k of OVERLAY_FIELDS) if (!(k in o)) errs.push(`overlay ${o.id}: missing ${k}`);
       if (!OVERLAY_KINDS.includes(o.kind)) errs.push(`overlay ${o.id}: bad kind ${o.kind}`);
       if (!ALLOWED_BALLOON_STYLES.includes(o.balloonStyle)) errs.push(`overlay ${o.id}: balloonStyle ${o.balloonStyle} not allowed`);
-      if (!linePage.has(o.scriptLineId)) errs.push(`overlay ${o.id}: scriptLineId ${o.scriptLineId} is not a line`);
+      // decorations (stickers and the like) belong to no line
+      if (!SCRIPT_KINDS.includes(o.kind) && o.scriptLineId === null) {
+        /* fine */
+      } else if (!linePage.has(o.scriptLineId)) errs.push(`overlay ${o.id}: scriptLineId ${o.scriptLineId} is not a line`);
       else if (linePage.get(o.scriptLineId) !== p.id) errs.push(`overlay ${o.id}: its line belongs to another page`);
       for (const k of ["tailX", "tailY", "fontSize"]) if (!num(o[k])) errs.push(`overlay ${o.id}: ${k} must be a number`);
       for (const k of ["x", "y", "w", "h"]) {

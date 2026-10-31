@@ -1726,9 +1726,9 @@ function SfxHand({
   const lines = (text || "NNH").split("\n");
   return (
     <div
-      className="koma-sfx-hand pointer-events-none absolute inset-0 flex flex-col items-center justify-center overflow-visible"
+      className="koma-sfx-chibi pointer-events-none absolute inset-0 flex flex-col items-center justify-center overflow-visible"
       style={{
-        fontFamily: "var(--font-sfx)",
+        fontFamily: "var(--font-sfx-chibi)",
         color,
         fontSize: "calc(var(--type-px) * var(--fit-scale, 1))",
         transform: "rotate(-6deg)",
@@ -1745,8 +1745,9 @@ function SfxHand({
                 style={{
                   fontSize: "1em",
                   display: "inline-block",
-                  transform: `translate(${wob.dx * 0.4}px, ${wob.dy * 0.5}px) rotate(${wob.rotate - 4}deg) scale(${wob.scale}, ${wob.scale * 1.06})`,
-                  WebkitTextStroke: "0.07em var(--color-paper)",
+                  // a little bounce: letters step up and down like chibi lettering
+                  transform: `translateY(${i % 2 ? -0.07 : 0.05}em) rotate(${(i % 2 ? 5 : -4) + wob.rotate * 0.5}deg) scale(${wob.scale})`,
+                  WebkitTextStroke: "0.14em #4a3346",
                   paintOrder: "stroke fill",
                 }}
               >

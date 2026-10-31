@@ -4,6 +4,7 @@ import { animeStickerSize } from "./anime-stickers";
 import { clinicIconSize, isClinicIconSrc } from "./clinic-icons";
 import {
 	SFX_STACK,
+	CHIBI_SFX_STACK,
 	canvasFont,
 	defaultFontId,
 	titleUsesOutline,
@@ -1147,8 +1148,18 @@ export function pageOverlays(page: { overlays?: Overlay[] }): Overlay[] {
 export function pageTitle(page: { title?: string }): string {
 	return page.title?.trim() ? page.title : "Untitled";
 }
+/** New stickers and marks: 8% of the page width. */
+export const STICKER_DEFAULT_SIZE = 8;
+/** New sound effects: type size 8, in the chibi pink. */
+export const SFX_DEFAULT_SIZE = 8;
+export const SFX_DEFAULT_COLOR = "#ff5d7a";
 export function makeOverlay(kind: OverlayKind, boxes: LaidOutPanel[], panelId: string | null, sticker?: StickerId, textOverride?: string, src?: string): Overlay {
-	const size = kind === "sticker" ? src ? isClinicIconSrc(src) ? clinicIconSize() : animeStickerSize(src) : stickerSize(sticker) : SIZES[kind];
+	const natural = kind === "sticker" ? src ? isClinicIconSrc(src) ? clinicIconSize() : animeStickerSize(src) : stickerSize(sticker) : SIZES[kind];
+	// stickers and marks start at size 8 (8% of the page width), keeping their shape
+	const size = kind === "sticker" ? {
+		w: STICKER_DEFAULT_SIZE,
+		h: Math.round(STICKER_DEFAULT_SIZE * natural.h / Math.max(1, natural.w) * 100) / 100
+	} : natural;
 	const box = boxes.find((b) => b.id === panelId) ?? boxes[0];
 	let x;
 	let y;
@@ -1188,10 +1199,10 @@ export function makeOverlay(kind: OverlayKind, boxes: LaidOutPanel[], panelId: s
 		w: size.w,
 		h: size.h,
 		text: kind === "tone" ? "" : text,
-		fontSize: kind === "sfx" ? 7 : kind === "title" ? 42 : kind === "narration" || kind === "text" ? 16 : kind === "whisper" ? 11 : kind === "shout" || kind === "scream" ? 22 : 15,
+		fontSize: kind === "sfx" ? SFX_DEFAULT_SIZE : kind === "title" ? 42 : kind === "narration" || kind === "text" ? 16 : kind === "whisper" ? 11 : kind === "shout" || kind === "scream" ? 22 : 15,
 		bold: kind !== "thought" && kind !== "sticker" && kind !== "whisper" && kind !== "tone" && kind !== "text",
 		italic: kind === "thought" || kind === "whisper",
-		color: kind === "sfx" ? "#b42318" : kind === "sticker" ? (src ? "" : stickerInk(sticker)) : kind === "tone" ? "#161412" : "#161412",
+		color: kind === "sfx" ? SFX_DEFAULT_COLOR : kind === "sticker" ? (src ? "" : stickerInk(sticker)) : kind === "tone" ? "#161412" : "#161412",
 		fill: kind === "text" ? "transparent" : "#ffffff",
 		stroke: kind === "text" ? "transparent" : "#161412",
 		tailX: kind === "thought" ? 22 : 30,
@@ -1591,7 +1602,7 @@ function comicFont(px, bold, italic, fontId, kind) {
 	return canvasFont(px, bold, italic, fontId, kind);
 }
 function drawHandSfx(ctx, text, w, h, px, color) {
-	ctx.font = `400 ${px}px ${SFX_STACK}`;
+	ctx.font = `400 ${px}px ${CHIBI_SFX_STACK}`;
 	ctx.textAlign = "left";
 	ctx.textBaseline = "middle";
 	ctx.lineJoin = "round";
@@ -1608,16 +1619,19 @@ function drawHandSfx(ctx, text, w, h, px, color) {
 			const cw = widths[i] ?? px * .5;
 			const wob = glyphWobble(i + li * 17, ch);
 			ctx.save();
-			ctx.translate(cx + cw / 2 + wob.dx * px * .04, ly + wob.dy * px * .08);
-			ctx.rotate(wob.rotate * Math.PI / 180 - .08);
-			ctx.scale(wob.scale, wob.scale * 1.06);
-			ctx.strokeStyle = "#f3eee6";
-			ctx.lineWidth = Math.max(5, px * .16);
+			// the same bounce and outline as the editor (koma-sfx-chibi)
+			ctx.translate(cx + cw / 2, ly + (i % 2 ? -.07 : .05) * px);
+			ctx.rotate(((i % 2 ? 5 : -4) + wob.rotate * .5) * Math.PI / 180 - .1);
+			ctx.scale(wob.scale, wob.scale);
+			ctx.strokeStyle = "#4a3346";
+			ctx.lineWidth = Math.max(3, px * .28);
+			ctx.save();
+			ctx.globalAlpha *= .3;
+			ctx.strokeText(ch, -cw / 2, px * .06);
+			ctx.restore();
 			ctx.strokeText(ch, -cw / 2, 0);
 			ctx.fillStyle = color;
 			ctx.fillText(ch, -cw / 2, 0);
-			ctx.globalAlpha = .28;
-			ctx.fillText(ch, -cw / 2 + px * .02, px * .025);
 			ctx.restore();
 			cx += cw;
 		});

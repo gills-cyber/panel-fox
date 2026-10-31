@@ -23,6 +23,8 @@ export type MakerAdvanced = {
   /** images the vision model looks at at once */
   parallel: number;
   language: string;
+  /** add chibi stickers where faces call for them */
+  stickers: boolean;
   testMode: boolean;
 };
 
@@ -45,6 +47,7 @@ export const DEFAULT_ADVANCED: MakerAdvanced = {
   pagesPerCall: 3,
   parallel: 4,
   language: "English",
+  stickers: true,
   testMode: false,
 };
 
@@ -471,6 +474,7 @@ export function startChapter(req: RunRequest): RunHandle {
             rtl: a.rtl,
             pagesPerCall: Math.max(1, Math.trunc(a.pagesPerCall) || 3),
             parallel: Math.min(8, Math.max(1, Math.trunc(a.parallel) || 4)),
+            stickers: a.stickers !== false,
             keepAlive: 3600,
             language: a.language || "English",
             temperature: Number.isFinite(a.temperature) ? a.temperature : 0.85,

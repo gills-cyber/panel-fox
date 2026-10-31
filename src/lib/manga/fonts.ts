@@ -15,6 +15,10 @@ export const COMIC_STACK =
 export const SFX_STACK =
   `"Gochi Hand", "Permanent Marker", "Yomogi", "Comic Neue", cursive`;
 
+/** Sound effects: round, bouncy chibi lettering. */
+export const CHIBI_SFX_STACK =
+  `"Mochiy Pop One", "M PLUS Rounded 1c", Nunito, sans-serif`;
+
 export const LETTER_FONTS: readonly LetterFont[] = [
   {
     id: "comic",
@@ -27,8 +31,8 @@ export const LETTER_FONTS: readonly LetterFont[] = [
   {
     id: "sfx",
     label: "SFX",
-    stack: SFX_STACK,
-    css: "var(--font-sfx)",
+    stack: CHIBI_SFX_STACK,
+    css: "var(--font-sfx-chibi)",
     group: "manga",
     outline: true,
   },

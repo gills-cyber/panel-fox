@@ -832,6 +832,7 @@ export function MakerDialog({ open, onClose }: { open: boolean; onClose: () => v
                       [
                         ["rtl", "Read right to left (manga style)"],
                         ["keepOrder", "Keep the folder’s file order"],
+                        ["stickers", "Add stickers (sweat drops, blushes…)"],
                         ["testMode", "Test run (no models, placeholder text)"],
                       ] as const
                     ).map(([key, label]) => (
