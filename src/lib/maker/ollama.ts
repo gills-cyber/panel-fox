@@ -2,6 +2,8 @@
 import { JSONRepairError, parseJsonLoose } from "./jsonfix.ts";
 
 export class OllamaError extends Error {}
+/** The model's answer stopped because it ran out of room (the context was full). */
+export class AnswerCutOff extends OllamaError {}
 
 export interface ModelClient {
   checkModels(models: string[]): Promise<string[]>;
@@ -155,6 +157,8 @@ export class OllamaClient implements ModelClient {
   }
 
   private noThink = true;
+  /** why the last answer ended ("stop", or "length" when it was cut off) */
+  private lastDone = "";
 
   private async chat(payload: Record<string, unknown>): Promise<string> {
     await this.useModel(String(payload.model));
@@ -171,6 +175,7 @@ export class OllamaClient implements ModelClient {
       this.noThink = false;
       res = await this.request("/api/chat", { ...payload, keep_alive: this.keepAlive, stream: true });
     }
+    this.lastDone = "";
     const reader = res.body?.getReader();
     if (!reader) return "";
     const dec = new TextDecoder();
@@ -184,17 +189,19 @@ export class OllamaClient implements ModelClient {
         const line = buf.slice(0, nl).trim();
         buf = buf.slice(nl + 1);
         if (!line) continue;
-        const msg = JSON.parse(line) as { message?: { content?: string }; error?: string };
+        const msg = JSON.parse(line) as { message?: { content?: string }; error?: string; done_reason?: string };
         if (msg.error) throw new OllamaError(`Ollama HTTP 500 on /api/chat: ${msg.error}`);
         content += msg.message?.content ?? "";
+        if (msg.done_reason) this.lastDone = msg.done_reason;
         this.onToken?.(content.length);
       }
       if (done) break;
     }
     if (buf.trim()) {
-      const msg = JSON.parse(buf) as { message?: { content?: string }; error?: string };
+      const msg = JSON.parse(buf) as { message?: { content?: string }; error?: string; done_reason?: string };
       if (msg.error) throw new OllamaError(`Ollama HTTP 500 on /api/chat: ${msg.error}`);
       content += msg.message?.content ?? "";
+      if (msg.done_reason) this.lastDone = msg.done_reason;
     }
     return content;
   }
@@ -233,11 +240,15 @@ export class OllamaClient implements ModelClient {
         }
         throw e;
       }
+      const cut = this.lastDone === "length";
       try {
         return parseJsonLoose(content);
       } catch (e) {
         if (!(e instanceof JSONRepairError)) throw e;
+        // asking again with the cut-off answer attached would only make it longer
+        if (cut) throw new AnswerCutOff(`Model ${model} ran out of room: its answer was cut off after ${content.length} characters.`);
         lastErr = e;
+        console.warn(`[maker] ${model} gave unreadable JSON (try ${attempt + 1}):`, content.slice(0, 2000));
         messages = [
           ...messages.slice(0, 2),
           { role: "assistant", content },

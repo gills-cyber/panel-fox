@@ -337,13 +337,34 @@ export function friendlyError(e: unknown): string {
   if (text.includes("Cannot reach Ollama")) {
     return "Can’t reach Ollama. Make sure the Ollama app is open, then try again.";
   }
-  if (/^Ollama HTTP \d+/.test(text)) return "Something at that address answered, but it isn’t Ollama. Check the Ollama address in Advanced.";
+  const http = /^Ollama HTTP (\d+) on \S+: ([\s\S]*)$/.exec(text);
+  if (http) {
+    // Ollama's own errors come as {"error": "..."} or from inside a streamed answer
+    let said = http[2]!.trim();
+    try {
+      const j = JSON.parse(said) as { error?: unknown };
+      if (typeof j.error === "string") said = j.error;
+    } catch {
+      /* plain text */
+    }
+    const fromOllama = /"error"/.test(http[2]!) || http[1] === "500";
+    if (!fromOllama) return "Something at that address answered, but it isn’t Ollama. Check the Ollama address in Advanced.";
+    return `Ollama had a problem: ${said.slice(0, 300)}`;
+  }
   if (text.includes("Missing Ollama models")) {
     return text.replace("Missing Ollama models:", "These models aren’t installed yet:").replace("Pull them with:", "Install them in Terminal with:");
   }
   if (text.includes("under 18")) return text;
   if (text.includes("No images found")) return "That folder has no images in it (PNG, JPG, WEBP, GIF or BMP).";
-  if (text.includes("did not return valid JSON")) return "The model gave an answer we couldn’t read. Try again; it usually works the second time.";
+  const kept = " The images it already looked at are kept, so trying again is quicker.";
+  const who = /^Model (\S+) /.exec(text)?.[1];
+  const short = who ? who.split("/").pop()!.replace(/-GGUF.*$/i, "").replace(/:.*$/, "") : "The model";
+  if (text.includes("ran out of room")) {
+    return `${short}’s answer got too long and was cut off. Try fewer “Pages written at a time”, or a model with a bigger context.${kept}`;
+  }
+  if (text.includes("did not return valid JSON")) {
+    return `${short} gave an answer the app couldn’t read. Try again, or choose a different model for this step.${kept}`;
+  }
   return text || "Something went wrong.";
 }
 

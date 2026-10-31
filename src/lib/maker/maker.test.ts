@@ -233,3 +233,43 @@ test("a stopped run keeps the images it looked at and the next run carries on", 
   assert.ok(lines.some((l) => /vision 2\/3: reusing 2 images/.test(l)));
   assert.equal(lines.filter((l) => l.startsWith("[TIME] Image ")).length, 1, "only the missing image is looked at");
 });
+
+test("pages whose script can't be read are written again one page at a time", async () => {
+  const { MockClient } = await import("./mock.ts");
+  const { SCRIPT_SCHEMA } = await import("./dialogue.ts");
+  const images = Array.from({ length: 16 }, (_, i) => ({ name: `${String(i + 1).padStart(2, "0")}.png`, bytes: png(60, 90, [i * 15, 80, 80]) }));
+  const cfgIn = { characters: [{ name: "Aiko" }] };
+  const mock = new MockClient(loadConfig(cfgIn));
+  let failed = 0;
+  const client = {
+    checkModels: (m: string[]) => mock.checkModels(m),
+    async chatJson(model: string, system: string, user: string, imgs?: string[] | null, schema?: Record<string, unknown> | null) {
+      if (schema === SCRIPT_SCHEMA && failed === 0) {
+        failed++;
+        throw new Error(`Model ${model} did not return valid JSON: broken`);
+      }
+      return mock.chatJson(model, system, user, imgs, schema);
+    },
+  };
+  const lines: string[] = [];
+  const { file } = await run({ images, config: cfgIn, mock: true, client, pagesPerCall: 3 }, (l) => lines.push(l));
+  assert.equal(failed, 1);
+  assert.ok(lines.some((l) => l.includes("one page at a time")));
+  assert.ok(file.doc.pages.some((p) => (p.overlays as unknown[]).length > 0));
+});
+
+test("an answer cut off by a full context is reported as such, not asked again", async () => {
+  const { OllamaClient, AnswerCutOff } = await import("./ollama.ts");
+  let calls = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    calls++;
+    return new Response(JSON.stringify({ message: { content: "Sure! Here is the script for the pages you asked for, starting with" }, done: true, done_reason: "length" }) + "\n");
+  }) as typeof fetch;
+  try {
+    await assert.rejects(new OllamaClient("localhost:11434").chatJson("m", "s", "u"), AnswerCutOff);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(calls, 1);
+});
