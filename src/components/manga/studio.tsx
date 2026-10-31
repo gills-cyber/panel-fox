@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ANIME_STICKERS, ANIME_STICKER_GROUP } from "@/lib/manga/anime-stickers";
 import { flushSync } from "react-dom";
 import { toast } from "sonner";
 import {
@@ -986,7 +987,16 @@ export function Studio() {
             {stickerTab === "manga" ? (
               <>
                 <p className="px-2 pb-2 text-xs font-medium text-muted">
-                  Emotion marks
+                  {ANIME_STICKER_GROUP}
+                </p>
+                <ChibiStickerGrid
+                  onPick={(src) => {
+                    useStudio.getState().addOverlay("sticker", undefined, undefined, src);
+                    setMenu(null);
+                  }}
+                />
+                <p className="px-2 pb-2 pt-3 text-xs font-medium text-muted">
+                  Ink marks
                 </p>
                 <StickerGrid
                   onPick={(id) => {
@@ -2233,7 +2243,15 @@ function InsertTools({ onAdded }: { onAdded?: () => void }) {
       <InsertFold title="Sound effects" koma="sfx-fold">
         <SfxGrid onPick={(id) => add("sfx", undefined, id)} />
       </InsertFold>
-      <InsertFold title="Emotion marks" koma="marks-fold">
+      <InsertFold title={ANIME_STICKER_GROUP} koma="chibi-fold">
+      <ChibiStickerGrid
+        onPick={(src) => {
+          useStudio.getState().addOverlay("sticker", undefined, undefined, src);
+          onAdded?.();
+        }}
+      />
+      </InsertFold>
+      <InsertFold title="Ink marks" koma="marks-fold">
       <StickerGrid
         onPick={(id) => add("sticker", id)}
       />
@@ -2322,6 +2340,25 @@ function InsertBtn({
       <span className="[&>svg]:size-4">{children}</span>
       {label}
     </button>
+  );
+}
+
+function ChibiStickerGrid({ onPick }: { onPick: (src: string) => void }) {
+  return (
+    <div data-koma="chibi-stickers" className="grid grid-cols-4 gap-1">
+      {ANIME_STICKERS.map((s) => (
+        <button
+          key={s.id}
+          type="button"
+          aria-label={s.label}
+          title={s.label}
+          onClick={() => onPick(s.src)}
+          className="flex size-12 items-center justify-center rounded-md bg-ink/5 p-1 active:bg-ink/15 hover:bg-ink/10"
+        >
+          <img src={s.src} alt="" draggable={false} className="size-full object-contain" />
+        </button>
+      ))}
+    </div>
   );
 }
 
