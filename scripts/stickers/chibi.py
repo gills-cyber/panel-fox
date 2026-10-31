@@ -51,8 +51,8 @@ def drop(cx, cy, s, tilt=0):
 
 
 def heart(cx, cy, s):
-    p = [(0, .9), (-.6, .45), (-1, .1), (-1, -.35), (-1, -.75), (-.65, -1), (-.3, -1), (-.12, -1), (0, -.88), (0, -.7),
-         (0, -.88), (.12, -1), (.3, -1), (.65, -1), (1, -.75), (1, -.35), (1, .1), (.6, .45), (0, .9)]
+    p = [(0, .95), (-.22, .68), (-1, .12), (-1, -.35), (-1, -.75), (-.65, -1), (-.3, -1), (-.12, -1), (0, -.88), (0, -.7),
+         (0, -.88), (.12, -1), (.3, -1), (.65, -1), (1, -.75), (1, -.35), (1, .12), (.22, .68), (0, .95)]
     f = lambda i: f"{cx + p[i][0]*s:.1f},{cy + p[i][1]*s:.1f}"
     d = f"M{f(0)}"
     for i in range(1, len(p), 3):
@@ -160,7 +160,6 @@ fl = ("M180,580 C70,580 20,500 30,400 C40,320 90,290 80,210 C130,250 140,300 135
 fl2 = ("M180,560 C115,560 85,505 95,445 C105,395 140,370 140,320 C175,355 180,390 175,420 C200,370 215,320 240,270 "
        "C250,340 290,380 290,450 C290,520 250,560 180,560 Z")
 b = shape(fl, "#ff9a3d") + f'<path d="{fl2}" fill="#ffd84d"/>'
-b += face(190, 470, 70, "dots", blush=True)
 svg("aura", 18, 30, b, pad=12)
 
 # --- sparkle: a cluster of stars ---------------------------------------------
@@ -180,8 +179,6 @@ svg("glint", 16, 16, b, pad=14)
 # --- heart: puffy heart with a happy face ------------------------------------
 b = shape(heart(180, 170, 165), "#ff7aa8")
 b += shine(110, 85, 32, 18)
-b += face(180, 165, 95, "happy", blush=False)
-b += f'<ellipse cx="105" cy="205" rx="20" ry="12" fill="#ffc2d6"/><ellipse cx="255" cy="205" rx="20" ry="12" fill="#ffc2d6"/>'
 svg("heart", 18, 16, b, pad=14)
 
 # --- blush: two cheeks with hatch lines --------------------------------------
@@ -195,7 +192,7 @@ svg("blush", 30, 10, b, pad=6)
 
 # --- tear: a chibi teardrop with a sad face ----------------------------------
 d, tr = drop(0, 0, 105)
-b = f'<g transform="translate(120,330)">' + shape(d, "#8fd3ff") + shine(-45, -40, 22, 34, 25) + face(0, 15, 75, "sad", blush=False) + "</g>"
+b = f'<g transform="translate(120,330)">' + shape(d, "#8fd3ff") + shine(-45, -40, 22, 34, 25) + "</g>"
 svg("tear", 12, 24, b, pad=14)
 
 # --- sweat: the classic big sweat drop ---------------------------------------
@@ -256,7 +253,6 @@ for i in range(5):
         f"M{fx},{fy} C{fx-95},{fy-60} {fx-70},{fy-175} {fx-12},{fy-170} L{fx},{fy-150} L{fx+12},{fy-170} "
         f"C{fx+70},{fy-175} {fx+95},{fy-60} {fx},{fy} Z", "#ffd0e0") + "</g>"
 b += f'<circle cx="{fx}" cy="{fy}" r="62" fill="#ffe27a" stroke="{OUT}" stroke-width="{SW}"/>'
-b += face(fx, fy - 4, 52, "happy", blush=True)
 b += tube(f"M{fx},{fy+70} Q{fx+10},{fy+160} {fx-5},{fy+235}", "#8fdc8f", 18, sw=10)
 b += shape(f"M{fx+4},{fy+170} C{fx+50},{fy+120} {fx+100},{fy+140} {fx+110},{fy+150} C{fx+80},{fy+195} {fx+30},{fy+200} {fx+4},{fy+170} Z", "#a6e8a0", sw=10)
 svg("flower", 18, 22, b, pad=14)
