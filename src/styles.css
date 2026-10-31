@@ -59,6 +59,7 @@
 }
 
 [data-theme="dark"] {
+  color-scheme: dark;
   --color-bg: #1c1c1e;
   --color-surface: #2c2c2e;
   --color-chrome: rgba(28, 28, 30, 0.72);
@@ -1289,7 +1290,8 @@ img {
   outline: none;
 }
 .koma-reader-select option {
-  color: #1d1d1f;
+  background-color: #2c2c2e;
+  color: #f5f5f7;
 }
 .koma-reader-sheet {
   display: grid;
@@ -1452,4 +1454,12 @@ img {
 [data-theme="dark"] textarea.bg-paper-white,
 [data-theme="dark"] select.bg-paper-white {
   background-color: rgb(255 255 255 / 0.07);
+}
+
+/* The list a drop-down opens is drawn by the system: give it the app's colours
+   so text stays readable in both light and dark mode (Windows draws it white). */
+select option,
+select optgroup {
+  background-color: var(--color-surface);
+  color: var(--color-ink);
 }
