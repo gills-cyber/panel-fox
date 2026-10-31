@@ -466,22 +466,63 @@ export async function analyseImages(
   forModel: (img: { name: string; bytes: Uint8Array }, maxSide: number) => Promise<string>,
   useRefs = true,
   log: (s: string) => void = () => {},
+  parallel = 1,
+  /** images already looked at (a stopped run): reused, not sent again; `onEach` hears each new result */
+  more: { known?: Map<string, Analysis>; onEach?: (name: string, a: Analysis) => void } = {},
 ): Promise<Map<string, Analysis>> {
   const refs = useRefs ? cfg.characters.filter((c) => c.reference) : [];
   const refB64: string[] = [];
   for (const c of refs) refB64.push(await forModel(c.reference!, 768));
   const prompt = buildVisionPrompt(cfg, refs.map((c) => c.name));
+  // Up to `parallel` images are looked at at once. Results keep the folder's order, and
+  // when several fail, the error of the earliest image is the one reported.
+  const n = images.length;
+  const out: Analysis[] = new Array(n);
+  let next = 0;
+  let finished = 0;
+  const fail: { first: { i: number; e: unknown } | null } = { first: null };
+  images.forEach((img, i) => {
+    const a = more.known?.get(img.name);
+    if (a) out[i] = a;
+  });
+  finished = out.filter(Boolean).length;
+  if (finished) log(`  vision ${finished}/${n}: reusing ${finished} images looked at before`);
+  const worker = async () => {
+    for (;;) {
+      if (fail.first) return;
+      const i = next++;
+      if (i >= n) return;
+      if (out[i]) continue;
+      const img = images[i]!;
+      const t0 = Date.now();
+      try {
+        let raw = await client.chatJson(model, VISION_SYSTEM, prompt, [...refB64, await forModel(img, 1280)], ANALYSIS_SCHEMA, 0.2);
+        if (Array.isArray(raw)) raw = { characters: raw };
+        const res = normalizeAnalysis(raw, cfg);
+        checkAdults(new Map([[img.name, res]]));
+        out[i] = res;
+        more.onEach?.(img.name, res);
+      } catch (e) {
+        // another image may have failed while this one was waiting
+        const prev = fail.first as { i: number; e: unknown } | null;
+        if (!prev || i < prev.i) fail.first = { i, e };
+        return;
+      }
+      finished++;
+      log(`  vision ${finished}/${n}: ${img.name}`);
+      log(`[TIME] Image ${i + 1} vision analysis (${img.name}): ${secs(Date.now() - t0)}`);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(Math.trunc(parallel) || 1, n)) }, worker));
+  if (fail.first) throw fail.first.e;
   const results = new Map<string, Analysis>();
-  for (let i = 0; i < images.length; i++) {
-    const img = images[i]!;
-    log(`  vision ${i + 1}/${images.length}: ${img.name}`);
-    let raw = await client.chatJson(model, VISION_SYSTEM, prompt, [...refB64, await forModel(img, 1280)], ANALYSIS_SCHEMA, 0.2);
-    if (Array.isArray(raw)) raw = { characters: raw };
-    const res = normalizeAnalysis(raw, cfg);
-    checkAdults(new Map([[img.name, res]]));
-    results.set(img.name, res);
-  }
+  images.forEach((img, i) => results.set(img.name, out[i]!));
   return results;
+}
+
+/** 12345 ms -> "12.3s" */
+export function secs(ms: number): string {
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 function beatNote(b: Beat | undefined): string {

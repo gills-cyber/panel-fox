@@ -153,7 +153,7 @@ export function AppMenu({
   return (
     <div
       data-koma-menubar
-      className="koma-glass relative z-50 hidden h-[1.75rem] shrink-0 items-center gap-0 border-b border-line/70 px-1.5 text-[13px] text-ink md:flex"
+      className="koma-glass relative z-[100] hidden h-[1.75rem] shrink-0 items-center gap-0 border-b border-line/70 px-1.5 text-[13px] text-ink md:flex"
     >
       <MenuBtn
         label="File"
@@ -165,12 +165,12 @@ export function AppMenu({
           onClick={() => run(onNew)}
         />
         <Item
-          label="New Brochure"
-          onClick={() => run(onNewBrochure)}
+          label="New Chapter with AI…"
+          onClick={() => run(onMakeChapter)}
         />
         <Item
-          label="New Chapter from Images…"
-          onClick={() => run(onMakeChapter)}
+          label="New Brochure"
+          onClick={() => run(onNewBrochure)}
         />
         <Item
           label="Projects…"
@@ -552,7 +552,7 @@ function MenuBtn({
       {open ? (
         <div
           data-koma-menu
-          className="koma-pop-in absolute left-0 top-[26px] z-50 min-w-[16rem] rounded-[12px] bg-surface/92 p-1.5 shadow-float backdrop-blur-2xl"
+          className="koma-pop-in absolute left-0 top-[26px] z-50 min-w-[16rem] rounded-[12px] bg-surface p-1.5 shadow-float"
           onPointerDown={(e) => e.stopPropagation()}
         >
           {children}

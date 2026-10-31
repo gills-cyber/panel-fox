@@ -27,6 +27,7 @@ import {
   photoFromFile,
   saveSettings,
   startChapter,
+  timingSummary,
   type ChosenImages,
   type MakerCharacter,
   type MakerSettings,
@@ -72,6 +73,20 @@ function Section({ title, caption, children, aside }: { title: string; caption?:
 
 function Row({ children, className }: { children: ReactNode; className?: string }) {
   return <div className={cn("flex min-h-11 items-center gap-3 px-3 py-2 [&+&]:border-t [&+&]:border-line", className)}>{children}</div>;
+}
+
+function Stepper({ value, min, max, onChange, label }: { value: number; min: number; max: number; onChange: (v: number) => void; label: string }) {
+  return (
+    <div className="flex items-center overflow-hidden rounded-[7px] border border-line bg-paper-white [[data-theme=dark]_&]:bg-white/[0.07]">
+      <button type="button" aria-label={`Fewer ${label}`} disabled={value <= min} className="px-2 py-1 text-ink-soft hover:bg-ink/5 disabled:opacity-40" onClick={() => onChange(Math.max(min, value - 1))}>
+        <Minus className="size-3" />
+      </button>
+      <span className="w-7 text-center text-[13px] tabular-nums">{value}</span>
+      <button type="button" aria-label={`More ${label}`} disabled={value >= max} className="px-2 py-1 text-ink-soft hover:bg-ink/5 disabled:opacity-40" onClick={() => onChange(Math.min(max, value + 1))}>
+        <Plus className="size-3" />
+      </button>
+    </div>
+  );
 }
 
 function Switch({ checked, onChange, label, koma }: { checked: boolean; onChange: (v: boolean) => void; label: string; koma?: string }) {
@@ -217,6 +232,8 @@ export function MakerDialog({ open, onClose }: { open: boolean; onClose: () => v
   const [dragging, setDragging] = useState(false);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [started, setStarted] = useState(0);
+  // When the first image finished, so model loading is not counted in the time-left estimate.
+  const [firstImage, setFirstImage] = useState<{ at: number; done: number } | null>(null);
   const [now, setNow] = useState(0);
   const [finishing, setFinishing] = useState(false);
   const runRef = useRef<RunHandle | null>(null);
@@ -332,18 +349,28 @@ export function MakerDialog({ open, onClose }: { open: boolean; onClose: () => v
     stoppedRef.current = false;
     setStarted(Date.now());
     setNow(Date.now());
-    setProgress({ step: "starting", detail: "", fraction: 0.02, notes: [] });
-    const handle = startChapter({ chosen, settings, onProgress: setProgress });
+    setProgress({ step: "starting", detail: "", fraction: 0.02, notes: [], timings: [] });
+    setFirstImage(null);
+    let firstSeen = false;
+    const onProgress = (p: Progress) => {
+      const m = p.step === "looking" ? /^(\d+) of \d+ images done$/.exec(p.detail) : null;
+      if (!firstSeen && m && Number(m[1]) > (p.reused ?? 0)) {
+        firstSeen = true;
+        setFirstImage({ at: Date.now(), done: Number(m[1]) });
+      }
+      setProgress(p);
+    };
+    const handle = startChapter({ chosen, settings, onProgress });
     runRef.current = handle;
     try {
-      const { file, notes } = await handle.done;
+      const { file, notes, timings } = await handle.done;
       if (stoppedRef.current) return;
       setFinishing(true);
       const record = await openProjectDocument(file as unknown as { name: string; doc: ProjectDoc }, chosen.folderName);
       useStudio.getState().setReadMode(false);
       const pages = (file.doc.pages ?? []).length;
       toast.success(`“${record.name}” is ready · ${pages} page${pages === 1 ? "" : "s"}`, {
-        description: notes.length ? notes.join(" ") : "Every panel and bubble can be edited.",
+        description: [notes.length ? notes.join(" ") : "Every panel and bubble can be edited.", timingSummary(timings)].filter(Boolean).join(" "),
         duration: 9000,
       });
       setProgress(null);
@@ -443,7 +470,7 @@ export function MakerDialog({ open, onClose }: { open: boolean; onClose: () => v
           </div>
           <div className="min-w-[12rem] flex-1">
             <h2 id="maker-title" className="text-[15px] font-semibold leading-tight text-ink">
-              New Chapter from Images
+              New Chapter with AI
             </h2>
             <p className="mt-0.5 text-[12px] leading-snug text-muted">
               Turn a folder of your images into a finished manga chapter.{" "}
@@ -493,8 +520,28 @@ export function MakerDialog({ open, onClose }: { open: boolean; onClose: () => v
               />
             </div>
             <p className="mt-3 text-[11px] text-muted">
-              {elapsed < 60 ? "Working… big models can take a while." : `Working… ${Math.floor(elapsed / 60)} min so far.`}
+              {(() => {
+                const m = progress.step === "looking" ? /^(\d+) of (\d+) images done$/.exec(progress.detail) : null;
+                const done = m ? Number(m[1]) : 0;
+                const total = m ? Number(m[2]) : 0;
+                const sofar = elapsed < 60 ? "" : ` ${Math.floor(elapsed / 60)} min so far.`;
+                const fresh = done - (progress.reused ?? 0);
+                if (fresh > 0 && total > done) {
+                  const each =
+                    firstImage && done > firstImage.done
+                      ? (now - firstImage.at) / 1000 / (done - firstImage.done)
+                      : elapsed / fresh;
+                  const left = Math.round((each * (total - done)) / 60);
+                  return `Working…${sofar} About ${left < 1 ? "a minute" : `${left} min`} left for the images.`;
+                }
+                return elapsed < 60 ? "Working… big models can take a while." : `Working…${sofar}`;
+              })()}
             </p>
+            {progress.notes.map((n) => (
+              <p key={n} className="mt-1 text-[11px] text-ink-soft">
+                {n}
+              </p>
+            ))}
             <p className="mt-1 text-[11px] text-muted">You can keep this window open and wait; your current manga is saved first.</p>
           </div>
         ) : (
@@ -760,29 +807,26 @@ export function MakerDialog({ open, onClose }: { open: boolean; onClose: () => v
                     </Row>
                     <Row>
                       <p className="flex-1 text-[13px] text-ink">Pages written at a time</p>
-                      <div className="flex items-center overflow-hidden rounded-[7px] border border-line bg-paper-white [[data-theme=dark]_&]:bg-white/[0.07]">
-                        <button
-                          type="button"
-                          aria-label="Fewer"
-                          className="px-2 py-1 text-ink-soft hover:bg-ink/5"
-                          onClick={() =>
-                            update((st) => ({ ...st, advanced: { ...st.advanced, pagesPerCall: Math.max(1, st.advanced.pagesPerCall - 1) } }))
-                          }
-                        >
-                          <Minus className="size-3" />
-                        </button>
-                        <span className="w-7 text-center text-[13px] tabular-nums">{s.advanced.pagesPerCall}</span>
-                        <button
-                          type="button"
-                          aria-label="More"
-                          className="px-2 py-1 text-ink-soft hover:bg-ink/5"
-                          onClick={() =>
-                            update((st) => ({ ...st, advanced: { ...st.advanced, pagesPerCall: Math.min(10, st.advanced.pagesPerCall + 1) } }))
-                          }
-                        >
-                          <Plus className="size-3" />
-                        </button>
+                      <Stepper
+                        label="pages"
+                        value={s.advanced.pagesPerCall}
+                        min={1}
+                        max={10}
+                        onChange={(v) => update((st) => ({ ...st, advanced: { ...st.advanced, pagesPerCall: v } }))}
+                      />
+                    </Row>
+                    <Row>
+                      <div className="flex-1">
+                        <p className="text-[13px] text-ink">Images looked at together</p>
+                        <p className="text-[11px] leading-snug text-muted">Faster on a big graphics card when Ollama allows it (OLLAMA_NUM_PARALLEL). Use 1 if Ollama runs out of memory.</p>
                       </div>
+                      <Stepper
+                        label="images"
+                        value={s.advanced.parallel}
+                        min={1}
+                        max={8}
+                        onChange={(v) => update((st) => ({ ...st, advanced: { ...st.advanced, parallel: v } }))}
+                      />
                     </Row>
                     {(
                       [
@@ -836,8 +880,17 @@ export function MakerDialog({ open, onClose }: { open: boolean; onClose: () => v
                   onClick={() => {
                     stoppedRef.current = true;
                     runRef.current?.stop();
+                    const seen = progress ? /^(\d+) of (\d+) images done$/.exec(progress.detail) : null;
+                    const lookedAt = seen ? Number(seen[1]) : 0;
+                    const pastImages = progress ? stepIndex(progress.step) > stepIndex("looking") : false;
                     setProgress(null);
-                    toast.message("Stopped. Nothing was changed.");
+                    toast.message(
+                      s?.advanced.testMode || (!pastImages && !lookedAt)
+                        ? "Stopped. Nothing was changed."
+                        : pastImages
+                          ? "Stopped. The images it looked at are kept, so Create will go straight to writing."
+                          : `Stopped. The ${lookedAt === 1 ? "image" : `${lookedAt} images`} it looked at ${lookedAt === 1 ? "is" : "are"} kept, so Create will carry on from there.`,
+                    );
                   }}
                 >
                   Stop

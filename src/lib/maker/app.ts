@@ -20,6 +20,8 @@ export type MakerAdvanced = {
   rtl: boolean;
   keepOrder: boolean;
   pagesPerCall: number;
+  /** images the vision model looks at at once */
+  parallel: number;
   language: string;
   testMode: boolean;
 };
@@ -41,6 +43,7 @@ export const DEFAULT_ADVANCED: MakerAdvanced = {
   rtl: true,
   keepOrder: false,
   pagesPerCall: 3,
+  parallel: 4,
   language: "English",
   testMode: false,
 };
@@ -248,17 +251,35 @@ export async function ollamaStatus(adv: MakerAdvanced): Promise<OllamaStatus> {
 // ---------- progress ------------------------------------------------------------
 
 export type Step = "starting" | "looking" | "ordering" | "layout" | "writing" | "saving" | "done";
-export type Progress = { step: Step; detail: string; fraction: number; notes: string[] };
+export type Progress = {
+  step: Step;
+  detail: string;
+  fraction: number;
+  notes: string[];
+  timings: string[];
+  /** images reused from a stopped run, so the time-left estimate counts only new ones */
+  reused?: number;
+};
 
 /** Turn the engine's log lines into plain-language progress. */
 export function progressFromLog(line: string, p: Progress): Progress {
   const l = line.trim();
   const next = { ...p, notes: [...p.notes] };
   let m: RegExpExecArray | null;
+  if (l.startsWith("[TIME]")) {
+    console.info(l);
+    return { ...next, timings: [...p.timings, l.slice(6).trim()] };
+  }
   if ((m = /vision (\d+)\/(\d+)/.exec(l))) {
     const i = +m[1]!;
     const n = +m[2]!;
-    return { ...next, step: "looking", detail: `Image ${i} of ${n}`, fraction: 0.05 + (0.5 * (i - 1)) / Math.max(1, n) };
+    const reused = l.includes("reusing") ? i : p.reused;
+    return { ...next, reused, step: "looking", detail: `${i} of ${n} images done`, fraction: 0.05 + (0.5 * i) / Math.max(1, n) };
+  }
+  if (l.startsWith("note: ")) {
+    const text = l.slice(6).trim();
+    if (!next.notes.includes(text)) next.notes.push(text);
+    return next;
   }
   if (l.startsWith("mock mode")) next.notes.push("Test run: placeholder text, no models were used.");
   else if (l.includes("using cached vision")) return { ...next, step: "looking", detail: "Already seen these images, reusing", fraction: 0.5 };
@@ -289,18 +310,76 @@ export function progressFromLog(line: string, p: Progress): Progress {
   return next;
 }
 
+/** "Vision analysis, 10 images: 84.2s" lines -> "Took 2m 5s: looking at images 1m 24s, writing 31s." */
+export function timingSummary(timings: string[]): string {
+  const value = (label: RegExp) => {
+    let total = 0;
+    let found = false;
+    for (const t of timings) {
+      const m = /^(.*): ([\d.]+)s$/.exec(t);
+      if (m && label.test(m[1]!)) {
+        total += Number(m[2]);
+        found = true;
+      }
+    }
+    return found ? total : null;
+  };
+  const fmt = (x: number) => (x >= 60 ? `${Math.floor(x / 60)}m ${Math.round(x % 60)}s` : `${x < 10 ? x.toFixed(1) : Math.round(x)}s`);
+  const total = value(/^Total$/);
+  if (total === null) return "";
+  const parts: string[] = [];
+  const looking = value(/^Vision analysis/);
+  const story = value(/^(Story outline|Reading order)/);
+  const writing = value(/^Script generation/);
+  if (looking !== null) parts.push(`looking at images ${fmt(looking)}`);
+  if (story !== null) parts.push(`story ${fmt(story)}`);
+  if (writing !== null) parts.push(`writing ${fmt(writing)}`);
+  return `Took ${fmt(total)}${parts.length ? `: ${parts.join(", ")}` : ""}.`;
+}
+
 export function friendlyError(e: unknown): string {
   const text = e instanceof Error ? e.message : String(e ?? "");
   if (text.includes("Cannot reach Ollama")) {
     return "Can’t reach Ollama. Make sure the Ollama app is open, then try again.";
   }
-  if (/^Ollama HTTP \d+/.test(text)) return "Something at that address answered, but it isn’t Ollama. Check the Ollama address in Advanced.";
+  const http = /^Ollama HTTP (\d+) on \S+: ([\s\S]*)$/.exec(text);
+  if (http) {
+    // Ollama's own errors come as {"error": "..."} or as plain text inside a streamed answer
+    let said = http[2]!.trim();
+    try {
+      const j = JSON.parse(said) as { error?: unknown };
+      if (typeof j.error === "string") said = j.error;
+    } catch {
+      /* plain text */
+    }
+    // only a web page is clearly something else; anything else is shown as it came
+    if (said.startsWith("<")) return "Something at that address answered, but it isn’t Ollama. Check the Ollama address in Advanced.";
+    const kept = " Any images it already looked at are kept, so trying again is quicker.";
+    if (/out of memory|CUDA error|cudaMalloc|unable to allocate|requires more system memory/i.test(said)) {
+      return `Ollama ran out of memory for this model. Under Advanced, set “Images looked at together” lower or pick smaller models, then try again.${kept} (${said.slice(0, 160)})`;
+    }
+    if (/unexpectedly stopped|runner process has terminated/i.test(said)) {
+      return `Ollama’s model stopped unexpectedly, which usually means it ran out of memory. Try again; if it happens again, set “Images looked at together” lower under Advanced or pick smaller models.${kept} (${said.slice(0, 160)})`;
+    }
+    if (/server busy|maximum pending requests/i.test(said)) {
+      return `Ollama was too busy to take the request; another app may be using it. Try again in a moment.${kept}`;
+    }
+    return `Ollama stopped with an error (code ${http[1]}${said ? `: ${said.slice(0, 300)}` : ""}).${kept}`;
+  }
   if (text.includes("Missing Ollama models")) {
     return text.replace("Missing Ollama models:", "These models aren’t installed yet:").replace("Pull them with:", "Install them in Terminal with:");
   }
   if (text.includes("under 18")) return text;
   if (text.includes("No images found")) return "That folder has no images in it (PNG, JPG, WEBP, GIF or BMP).";
-  if (text.includes("did not return valid JSON")) return "The model gave an answer we couldn’t read. Try again; it usually works the second time.";
+  const kept = " Any images it already looked at are kept, so trying again is quicker.";
+  const who = /^Model (\S+) /.exec(text)?.[1];
+  const short = who ? who.split("/").pop()!.replace(/-GGUF.*$/i, "").replace(/:.*$/, "") : "The model";
+  if (text.includes("ran out of room")) {
+    return `${short}’s answer got too long and was cut off. Try again, or choose a model that handles longer answers.${kept}`;
+  }
+  if (text.includes("did not return valid JSON")) {
+    return `${short} gave an answer the app couldn’t read. Try again, or choose a different model for this step.${kept}`;
+  }
   return text || "Something went wrong.";
 }
 
@@ -312,14 +391,15 @@ export type RunRequest = {
   onProgress: (p: Progress) => void;
 };
 
-export type RunHandle = { done: Promise<{ file: KomaFile; notes: string[] }>; stop: () => void };
+export type RunResultInfo = { file: KomaFile; notes: string[]; timings: string[] };
+export type RunHandle = { done: Promise<RunResultInfo>; stop: () => void };
 
 export function startChapter(req: RunRequest): RunHandle {
   const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
-  let progress: Progress = { step: "starting", detail: "", fraction: 0.02, notes: [] };
-  type Settle = { resolve: (v: { file: KomaFile; notes: string[] }) => void; reject: (e: unknown) => void };
+  let progress: Progress = { step: "starting", detail: "", fraction: 0.02, notes: [], timings: [] };
+  type Settle = { resolve: (v: RunResultInfo) => void; reject: (e: unknown) => void };
   const holder: { s: Settle | null } = { s: null };
-  const done = new Promise<{ file: KomaFile; notes: string[] }>((resolve, reject) => {
+  const done = new Promise<RunResultInfo>((resolve, reject) => {
     holder.s = { resolve, reject };
   });
   let stopped = false;
@@ -357,7 +437,7 @@ export function startChapter(req: RunRequest): RunHandle {
           if (key) void writeCache(key, msg.value);
         } else if (msg.type === "done") {
           worker.terminate();
-          holder.s?.resolve({ file: msg.file, notes: progress.notes });
+          holder.s?.resolve({ file: msg.file, notes: progress.notes, timings: progress.timings });
           holder.s = null;
         } else if (msg.type === "error") {
           worker.terminate();
@@ -390,6 +470,8 @@ export function startChapter(req: RunRequest): RunHandle {
             keepOrder: a.keepOrder,
             rtl: a.rtl,
             pagesPerCall: Math.max(1, Math.trunc(a.pagesPerCall) || 3),
+            parallel: Math.min(8, Math.max(1, Math.trunc(a.parallel) || 4)),
+            keepAlive: 3600,
             language: a.language || "English",
             temperature: Number.isFinite(a.temperature) ? a.temperature : 0.85,
             selectImages: !s.useAllImages,

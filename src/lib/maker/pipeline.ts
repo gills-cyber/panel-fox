@@ -10,7 +10,7 @@ import { MockClient } from "./mock.ts";
 import { OllamaClient, type ModelClient } from "./ollama.ts";
 import { pyInt, sortedBy } from "./py.ts";
 import { outline, outlineNotes, select, type SelectionInfo } from "./selection.ts";
-import { analyseImages, planOrder, resolvePeople, type Analysis, type Beat } from "./vision.ts";
+import { analyseImages, planOrder, resolvePeople, secs, type Analysis, type Beat } from "./vision.ts";
 
 export const DEFAULT_VISION = "huihui_ai/qwen3-vl-abliterated:8b-instruct";
 export const DEFAULT_DIALOGUE = "huihui_ai/qwen2.5-coder-abliterate:32b";
@@ -42,6 +42,10 @@ export type RunOptions = {
   numCtx?: number | null;
   selectImages?: boolean;
   maxImages?: number | null;
+  /** how many images the vision model looks at at once (Ollama must allow it: OLLAMA_NUM_PARALLEL) */
+  parallel?: number;
+  /** how long Ollama keeps models loaded after each call, in seconds (-1: until Ollama quits) */
+  keepAlive?: number;
   cache?: VisionCache | null;
   /** a model client to use instead of Ollama (tests) */
   client?: ModelClient;
@@ -89,6 +93,13 @@ export async function run(opt: RunOptions, log: (s: string) => void = () => {}):
   const visionModel = opt.visionModel || DEFAULT_VISION;
   const dialogueModel = opt.dialogueModel || DEFAULT_DIALOGUE;
   const rtl = opt.rtl ?? true;
+  const started = Date.now();
+  let phaseStart = started;
+  const timed = (label: string) => {
+    const now = Date.now();
+    say(`[TIME] ${label}: ${secs(now - phaseStart)}`);
+    phaseStart = now;
+  };
   say(`Manga Maker ${MAKER_VERSION}`);
   const cfg = loadConfig(opt.config);
   const images = sortImages(opt.images);
@@ -104,7 +115,20 @@ export async function run(opt: RunOptions, log: (s: string) => void = () => {}):
     client = m;
     say("mock mode: no models are called");
   } else {
-    client = new OllamaClient(opt.host ?? "http://localhost:11434", opt.numCtx === undefined ? 16384 : opt.numCtx, opt.signal);
+    client = new OllamaClient(
+      opt.host ?? "http://localhost:11434",
+      opt.numCtx === undefined ? 16384 : opt.numCtx,
+      opt.signal,
+      opt.keepAlive ?? 3600,
+    );
+    if (client instanceof OllamaClient) {
+    if (visionModel !== dialogueModel) {
+      client.models = [visionModel, dialogueModel];
+      // looking at one image needs far less room than writing pages; half the memory per request
+      client.smallCtx = { [visionModel]: 8192 };
+    }
+    client.onNote = (text) => say(`note: ${text}`);
+  }
     const missing = await client.checkModels([visionModel, dialogueModel]);
     if (missing.length) {
       throw new PipelineError(
@@ -115,9 +139,14 @@ export async function run(opt: RunOptions, log: (s: string) => void = () => {}):
   if (opt.mock && opt.client instanceof MockClient) opt.client.imageNames = images.map((p) => p.name);
   const forModel = opt.forModel ?? (async (img: { bytes: Uint8Array }) => base64(img.bytes));
 
+  timed("Setup and model check");
+
   // 1. vision (cached so dialogue can be re-rolled without looking again)
   let analyses: Map<string, Analysis> | null = null;
+  let fromCache = false;
   const who = await visionSignature({ ...opt, visionModel }, cfg);
+  // images a stopped (or failed) run already looked at, picked up where it left off
+  const known = new Map<string, Analysis>();
   if (opt.cache) {
     const cached = await opt.cache.load();
     const ca = cached?.analyses;
@@ -127,22 +156,42 @@ export async function run(opt: RunOptions, log: (s: string) => void = () => {}):
       const current = Object.values(ca).every((a) => "focus_box" in a && "art_text" in a);
       if (sameImages && current && same(cached.who ?? who, who)) {
         analyses = new Map(Object.entries(ca));
+        fromCache = true;
         say("using cached vision results");
         if (cached.who === undefined) await opt.cache.save({ analyses: ca, who }).catch(() => {});
+      } else if (current && cached.who !== undefined && same(cached.who, who)) {
+        for (const k of keys) if (byName.has(k)) known.set(k, ca[k]!);
       }
     }
   }
   if (analyses === null) {
     say("vision pass");
-    analyses = await analyseImages(client, visionModel, cfg, images, forModel, opt.useRefs ?? true, (s) => {
-      check();
-      say(s);
-    });
+    const sofar: Record<string, Analysis> = Object.fromEntries(known);
+    const cache = opt.cache;
+    analyses = await analyseImages(
+      client, visionModel, cfg, images, forModel, opt.useRefs ?? true,
+      (s) => {
+        check();
+        say(s);
+      },
+      opt.parallel ?? 1,
+      {
+        known,
+        // saved after every image, so pressing Stop keeps what is done
+        onEach: cache
+          ? (n, a) => {
+              sofar[n] = a;
+              void cache.save({ analyses: { ...sofar }, who }).catch(() => {});
+            }
+          : undefined,
+      },
+    );
     if (opt.cache) await opt.cache.save({ analyses: Object.fromEntries(analyses), who }).catch(() => {});
     // the cache keeps what the model saw; the steps below change the analyses in memory only
     analyses = new Map(JSON.parse(JSON.stringify(Array.from(analyses))) as [string, Analysis][]);
   }
   await pause();
+  timed(fromCache ? "Vision analysis (reused from last time)" : `Vision analysis, ${images.length} images`);
 
   const standIn = resolvePeople(analyses, cfg);
   if (standIn) {
@@ -164,6 +213,7 @@ export async function run(opt: RunOptions, log: (s: string) => void = () => {}):
     const all = analyses;
     analyses = new Map(keptNames.map((n) => [n, all.get(n)!]));
     kept = images.filter((p) => analyses!.has(p.name));
+    timed("Story outline and image selection");
   }
   const context = selection ? outlineNotes(selection) : "";
   const beats = new Map<string, Beat>(selection ? Object.entries(selection.beats) : []);
@@ -180,6 +230,7 @@ export async function run(opt: RunOptions, log: (s: string) => void = () => {}):
   } else {
     [order, importance, storyNotes] = await planOrder(client, visionModel, analyses, say, context, beats);
     if (context) storyNotes = `${context} ${storyNotes}`.trim();
+    timed("Reading order");
   }
   await pause();
 
@@ -206,6 +257,7 @@ export async function run(opt: RunOptions, log: (s: string) => void = () => {}):
   framePanels(pages, crops);
   say(`layout: ${pages.length} pages, panels per page: [${pages.map((p) => p.panels.length).join(", ")}]`);
   await pause();
+  timed("Framing and page layout");
 
   // 5. dialogue
   say("dialogue pass");
@@ -221,6 +273,7 @@ export async function run(opt: RunOptions, log: (s: string) => void = () => {}):
   script.forEach((l, i) => (l.id = `line-${i + 1}`));
   say(`script: ${script.length} lines`);
   await pause();
+  timed("Script generation (dialogue)");
 
   // 6. bubbles + project
   const overlays = await placeBubbles(pages, script, analyses, rtl, cfg.reader ? cfg.reader.id : null, pause);
@@ -230,6 +283,8 @@ export async function run(opt: RunOptions, log: (s: string) => void = () => {}):
   if (added.length) say(`speakers not in your cast: ${added.join(", ")}`);
   const problems = validateKoma(file);
   if (problems.length) throw new PipelineError(`Generated project failed validation:\n${problems.slice(0, 20).join("\n")}`);
+  timed("Speech bubbles and project");
+  say(`[TIME] Total: ${secs(Date.now() - started)}`);
   say("done");
   return { file, selection, log: lines };
 }

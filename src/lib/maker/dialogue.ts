@@ -501,8 +501,13 @@ export async function writeScript(
   const all: ScriptLine[] = [];
   const said = new Set<string>();
   let summary = "";
-  for (let start = 0; start < pages.length; start += pagesPerCall) {
-    const chunk = pages.slice(start, start + pagesPerCall);
+  // When an answer for several pages can't be read (often because it was cut off),
+  // those pages are written again one at a time.
+  let per = Math.max(1, pagesPerCall);
+  let oneByOneUntil = -1;
+  for (let start = 0; start < pages.length; ) {
+    if (start >= oneByOneUntil) per = Math.max(1, pagesPerCall);
+    const chunk = pages.slice(start, start + per);
     const pagePanels = new Map<string, [Panel, Page]>();
     const byPanel = new Map<string, Analysis>();
     const briefs: Record<string, unknown>[] = [];
@@ -519,11 +524,24 @@ export async function writeScript(
     }
     log(`  dialogue: pages ${start + 1}-${start + chunk.length} of ${pages.length}`);
     const prompt = buildDialoguePrompt(cfg, storyNotes, summary, history(all), briefs, language);
-    const raw = await client.chatJson(model, DIALOGUE_SYSTEM, prompt, null, SCRIPT_SCHEMA, temperature);
+    const t0 = Date.now();
+    let raw: unknown;
+    try {
+      raw = await client.chatJson(model, DIALOGUE_SYSTEM, prompt, null, SCRIPT_SCHEMA, temperature);
+    } catch (e) {
+      const unreadable = e instanceof Error && /did not return valid JSON|ran out of room/.test(e.message);
+      if (!unreadable || chunk.length < 2) throw e;
+      log(`  dialogue: answer for pages ${start + 1}-${start + chunk.length} could not be read; writing them one page at a time`);
+      oneByOneUntil = start + chunk.length;
+      per = 1;
+      continue;
+    }
+    log(`[TIME] Dialogue for pages ${start + 1}-${start + chunk.length}: ${((Date.now() - t0) / 1000).toFixed(1)}s`);
     const lines = normalizeLines(raw, cfg, pagePanels, byPanel, said, log);
     for (const l of lines) l.page_id = pagePanels.get(l.panel_id)![1].id;
     all.push(...lines);
     if (isDict(raw) && truthy(raw.summary)) summary = pyStr(raw.summary);
+    start += chunk.length;
   }
   return all;
 }

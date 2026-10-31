@@ -2,6 +2,7 @@ import { memo, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProp
 import { FlipHorizontal2, FlipVertical2 } from "lucide-react";
 import type { Overlay, ResizeHandle, StickerId } from "@/lib/manga/types";
 import { HANDLE_CURSOR } from "@/lib/manga/resize";
+import { isAnimeStickerSrc } from "@/lib/manga/anime-stickers";
 import { glyphWobble, moveOverlay, resizeOverlay, THOUGHT_CLOUD, chainConnectorPath, HEART_PATH, RAGE_PATH, isGlowInk, glowStrength, isDialogue, fitBubbleSize, wrapHeightForBox, speechTailGeom, speechTailPath, thoughtTrail, canRotate, wrapDeg, overlayOpacity, tintsRaster, stickerPaint, STICKER_COLORS, scaleOverlayBy, scaleOverlaySize, LETTER_FONT_MAX, LETTER_FONT_MIN, pageOverlays, letterRefHeight, letterLockHeight, isClearPaint } from "@/lib/manga/lettering";
 import {
   balloonStyleOf,
@@ -694,6 +695,54 @@ export function Bubble({
   const order = scriptOrder(script, overlay.scriptLineId);
   const speaker = speakerOf(cast, overlay.speakerId);
 
+  // keep the floating bar inside the page area, so it never slides under the sidebar
+  const barRef = useRef<HTMLDivElement>(null);
+  const [barNudge, setBarNudge] = useState(0);
+  // a bar beside the bubble that does not fit goes below it instead
+  const [barBelow, setBarBelow] = useState(false);
+  const [barMax, setBarMax] = useState<number | null>(null);
+  const besideBubble = barStyle.top === 0 && barStyle.left !== "50%";
+  useEffect(() => {
+    setBarBelow(false);
+    setBarNudge(0);
+  }, [selected, besideBubble]);
+  const [stageScroll, setStageScroll] = useState(0);
+  useEffect(() => {
+    if (!selected) return;
+    const area = barRef.current?.closest("[data-koma='page-stage']");
+    if (!area) return;
+    const onScroll = () => setStageScroll((n) => n + 1);
+    area.addEventListener("scroll", onScroll, { passive: true });
+    return () => area.removeEventListener("scroll", onScroll);
+  }, [selected]);
+  useLayoutEffect(() => {
+    const bar = barRef.current;
+    if (!bar) return;
+    const area = bar.closest("[data-koma='page-stage']") ?? document.documentElement;
+    const r = bar.getBoundingClientRect();
+    const box = area.getBoundingClientRect();
+    // the visible inside of the page area, without its scrollbar
+    const a = { left: box.left + area.clientLeft, right: box.left + area.clientLeft + area.clientWidth, width: area.clientWidth };
+    const left = r.left - barNudge;
+    const right = r.right - barNudge;
+    const pad = 8;
+    const room = Math.floor(a.width - pad * 2);
+    if (room > 0 && barMax !== room) {
+      setBarMax(room);
+      return;
+    }
+    if (besideBubble && !barBelow && (right > a.right - pad || left < a.left + pad)) {
+      setBarBelow(true);
+      return;
+    }
+    let next = 0;
+    if (right > a.right - pad) next = a.right - pad - right;
+    if (left + next < a.left + pad) next = a.left + pad - left;
+    if (Math.abs(next - barNudge) > 0.5) setBarNudge(next);
+  }, [barNudge, barMax, besideBubble, barBelow, selected, stageScroll, overlay.x, overlay.y, overlay.w, overlay.h, textEditing]);
+  const shownBarStyle: CSSProperties =
+    besideBubble && barBelow ? { left: "50%", top: "100%", transform: "translate(-50%, 10px)" } : barStyle;
+
   return (
     <div
       ref={rootRef}
@@ -981,9 +1030,12 @@ export function Bubble({
 
       {selected && !hideBar ? (
         <div
+          ref={barRef}
+          // the bar pops in with a scale animation; measure again once it has its real size
+          onAnimationEnd={() => setStageScroll((n) => n + 1)}
           className="koma-ov-bar"
           data-koma="letter-bar"
-          style={barStyle}
+          style={{ ...shownBarStyle, maxWidth: barMax ?? undefined, translate: barNudge ? `${Math.round(barNudge)}px 0` : undefined }}
           onPointerDown={(e) => {
             e.stopPropagation();
             if ((e.target as HTMLElement).closest("button, input, textarea, select, label, [role='slider'], [data-koma='sticker-opacity']")) return;
@@ -1233,14 +1285,14 @@ export function Bubble({
       {selected && canRotate(overlay.kind) && !overlay.locked ? (
         <>
           <span
-            className={cn("koma-rotate-stem", barStyle.top !== "100%" && "is-below")}
+            className={cn("koma-rotate-stem", shownBarStyle.top !== "100%" && "is-below")}
             aria-hidden
           />
           <button
             type="button"
             aria-label="Rotate"
             data-koma="rotate-handle"
-            className={cn("koma-rotate-knob", barStyle.top !== "100%" && "is-below")}
+            className={cn("koma-rotate-knob", shownBarStyle.top !== "100%" && "is-below")}
             onPointerDown={(e) => onPointerDown(e, "rotate")}
           />
         </>
@@ -1742,6 +1794,8 @@ function RasterMark({ src, color }: { src: string; color?: string }) {
 function StickerLookBar({ overlay }: { overlay: Overlay }) {
   const pct = Math.round(overlayOpacity(overlay) * 100);
   const raster = Boolean(overlay.src);
+  // the chibi stickers are full-colour art: one flat tint would wipe out their outlines and faces
+  const fullColour = isAnimeStickerSrc(overlay.src);
   const current = (overlay.color || "").toLowerCase();
   const sizePct = overlay.w;
   return (
@@ -1769,6 +1823,7 @@ function StickerLookBar({ overlay }: { overlay: Overlay }) {
           +
         </button>
       </div>
+      {fullColour ? null : (
       <div className="koma-swatches" data-koma="sticker-color">
         {raster ? (
           <button
@@ -1811,6 +1866,7 @@ function StickerLookBar({ overlay }: { overlay: Overlay }) {
           />
         </label>
       </div>
+      )}
       <div className="koma-opacity" data-koma="sticker-opacity">
         <Slider
           min={0}

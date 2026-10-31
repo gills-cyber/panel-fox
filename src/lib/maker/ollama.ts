@@ -2,6 +2,8 @@
 import { JSONRepairError, parseJsonLoose } from "./jsonfix.ts";
 
 export class OllamaError extends Error {}
+/** The model's answer stopped because it ran out of room (the context was full). */
+export class AnswerCutOff extends OllamaError {}
 
 export interface ModelClient {
   checkModels(models: string[]): Promise<string[]>;
@@ -45,11 +47,14 @@ export class OllamaClient implements ModelClient {
   numCtx: number | null;
   signal?: AbortSignal;
   onToken?: (chars: number) => void;
+  /** How long Ollama keeps a model in memory after a call (seconds, or -1 for always). */
+  keepAlive: number | string;
 
-  constructor(host = "http://localhost:11434", numCtx: number | null = null, signal?: AbortSignal) {
+  constructor(host = "http://localhost:11434", numCtx: number | null = null, signal?: AbortSignal, keepAlive: number | string = 3600) {
     this.host = normalizeHost(host) ?? host.replace(/\/+$/, "");
     this.numCtx = numCtx;
     this.signal = signal;
+    this.keepAlive = keepAlive;
   }
 
   private async request(path: string, payload?: unknown): Promise<Response> {
@@ -67,7 +72,15 @@ export class OllamaClient implements ModelClient {
     }
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      throw new OllamaError(`Ollama HTTP ${res.status} on ${path}: ${body.slice(0, 500)}`);
+      // Ollama's own errors are {"error": "..."}: keep the whole message, shorten anything else
+      let said = body.slice(0, 500);
+      try {
+        const j = JSON.parse(body) as { error?: unknown };
+        if (typeof j.error === "string") said = JSON.stringify({ error: j.error.slice(0, 500) });
+      } catch {
+        /* not JSON */
+      }
+      throw new OllamaError(`Ollama HTTP ${res.status} on ${path}: ${said}`);
     }
     return res;
   }
@@ -109,10 +122,149 @@ export class OllamaClient implements ModelClient {
     return out;
   }
 
-  private async chat(payload: Record<string, unknown>): Promise<string> {
-    const res = await this.request("/api/chat", { ...payload, stream: true });
+  /**
+   * The models this run uses. Only the one being asked is kept loaded: the others are
+   * unloaded first, so the model in use fits on the graphics card instead of spilling
+   * onto the much slower CPU.
+   */
+  models: string[] = [];
+  private active: string | null = null;
+  private switching: Promise<void> | null = null;
+
+  /** A smaller context for some models (the vision model), used when the request fits in it. */
+  smallCtx: Record<string, number> = {};
+  /** Plain-language notes for the person, such as a model that doesn't fit on the graphics card. */
+  onNote?: (text: string) => void;
+  /** At most this many requests at once; drops to 1 after Ollama runs out of memory. */
+  private limit = Infinity;
+  private running = 0;
+  private waiting: (() => void)[] = [];
+  private checkedFit = new Set<string>();
+
+  private async slot(): Promise<() => void> {
+    while (this.running >= this.limit) await new Promise<void>((r) => this.waiting.push(r));
+    this.running++;
+    let open = true;
+    return () => {
+      if (!open) return;
+      open = false;
+      this.running--;
+      this.waiting.shift()?.();
+    };
+  }
+
+  /** After a model's first answer: warn when Ollama could not fit all of it on the graphics card. */
+  private async checkFit(model: string): Promise<void> {
+    if (!this.onNote || this.checkedFit.has(model)) return;
+    this.checkedFit.add(model);
+    try {
+      const res = await this.request("/api/ps");
+      const body = (await res.json()) as { models?: { name?: string; model?: string; size?: number; size_vram?: number }[] };
+      const plain = (n: string) => (n.endsWith(":latest") ? n.slice(0, -7) : n);
+      const hit = (body.models ?? []).find((m) => plain(m.name || m.model || "") === plain(model));
+      if (!hit || !hit.size || hit.size_vram === undefined) return;
+      const onGpu = hit.size_vram / hit.size;
+      if (onGpu < 0.95) {
+        const short = model.split("/").pop()!.replace(/-GGUF.*$/i, "").replace(/:.*$/, "");
+        this.onNote?.(
+          `${short} doesn’t fit on your graphics card (${Math.round(onGpu * 100)}% fits), so part of it runs on the much slower processor. A smaller model would be faster.`,
+        );
+      }
+    } catch {
+      /* only a hint */
+    }
+  }
+
+  /** Free the graphics card after Ollama ran out of memory: unload this run's models. */
+  private async freeMemory(model: string): Promise<void> {
+    for (const m of new Set([...this.models, model])) {
+      try {
+        const res = await this.request("/api/generate", { model: m, keep_alive: 0 });
+        await res.text();
+      } catch {
+        /* best effort */
+      }
+    }
+    this.active = null;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+
+  private async useModel(model: string): Promise<void> {
+    if (!this.models.length) return;
+    if (this.switching) await this.switching;
+    if (this.active === model) return;
+    if (!this.switching) {
+      this.switching = (async () => {
+        const plain = (n: string) => (n.endsWith(":latest") ? n.slice(0, -7) : n);
+        let running: string[] = [];
+        try {
+          const res = await this.request("/api/ps");
+          const body = (await res.json()) as { models?: { name?: string; model?: string }[] };
+          running = (body.models ?? []).map((m) => plain(m.name || m.model || ""));
+        } catch {
+          running = [];
+        }
+        for (const m of this.models) {
+          if (plain(m) === plain(model) || !running.includes(plain(m))) continue;
+          try {
+            const res = await this.request("/api/generate", { model: m, keep_alive: 0 });
+            await res.text();
+          } catch {
+            /* unloading is only a speed-up */
+          }
+        }
+        this.active = model;
+      })().finally(() => {
+        this.switching = null;
+      });
+    }
+    await this.switching;
+    if (this.active !== model) await this.useModel(model);
+  }
+
+  private noThink = true;
+
+  /** The streamed answer, and whether it stopped because the context was full. */
+  private async chat(payload: Record<string, unknown>): Promise<{ content: string; cut: boolean }> {
+    const model = String(payload.model);
+    for (let attempt = 0; ; attempt++) {
+      const done = await this.slot();
+      try {
+        const out = await this.chatOnce(payload);
+        void this.checkFit(model);
+        return out;
+      } catch (e) {
+        const memory = e instanceof OllamaError && /out of memory|CUDA error|cudaMalloc|unable to allocate|unexpectedly stopped|runner process has terminated/i.test(e.message);
+        if (!memory || attempt >= 1 || this.signal?.aborted) throw e;
+        // one request at a time from now on, with the memory freed first
+        if (this.limit !== 1) this.onNote?.("Ollama ran out of memory, so the rest is done one request at a time.");
+        this.limit = 1;
+        await this.freeMemory(model); // the slot is kept, so nothing reloads the model meanwhile
+        continue;
+      } finally {
+        done();
+      }
+    }
+  }
+
+  private async chatOnce(payload: Record<string, unknown>): Promise<{ content: string; cut: boolean }> {
+    await this.useModel(String(payload.model));
+    // Thinking models (such as qwen3-vl) can write thousands of hidden words per
+    // image; the maker only needs the JSON answer, so thinking is turned off.
+    // A server that rejects the flag is asked again without it.
+    let res: Response;
+    try {
+      res = await this.request("/api/chat", { ...payload, ...(this.noThink ? { think: false } : {}), keep_alive: this.keepAlive, stream: true });
+    } catch (e) {
+      // only a 400 that complains about the flag itself, not one that merely names a "thinking" model
+      const said = e instanceof OllamaError ? e.message.split(String(payload.model)).join("") : "";
+      if (!(this.noThink && /HTTP 400/.test(said) && /think/i.test(said))) throw e;
+      this.noThink = false;
+      res = await this.request("/api/chat", { ...payload, keep_alive: this.keepAlive, stream: true });
+    }
+    let cut = false;
     const reader = res.body?.getReader();
-    if (!reader) return "";
+    if (!reader) return { content: "", cut };
     const dec = new TextDecoder();
     let buf = "";
     let content = "";
@@ -124,19 +276,21 @@ export class OllamaClient implements ModelClient {
         const line = buf.slice(0, nl).trim();
         buf = buf.slice(nl + 1);
         if (!line) continue;
-        const msg = JSON.parse(line) as { message?: { content?: string }; error?: string };
+        const msg = JSON.parse(line) as { message?: { content?: string }; error?: string; done_reason?: string };
         if (msg.error) throw new OllamaError(`Ollama HTTP 500 on /api/chat: ${msg.error}`);
         content += msg.message?.content ?? "";
+        if (msg.done_reason) cut = msg.done_reason === "length";
         this.onToken?.(content.length);
       }
       if (done) break;
     }
     if (buf.trim()) {
-      const msg = JSON.parse(buf) as { message?: { content?: string }; error?: string };
+      const msg = JSON.parse(buf) as { message?: { content?: string }; error?: string; done_reason?: string };
       if (msg.error) throw new OllamaError(`Ollama HTTP 500 on /api/chat: ${msg.error}`);
       content += msg.message?.content ?? "";
+      if (msg.done_reason) cut = msg.done_reason === "length";
     }
-    return content;
+    return { content, cut };
   }
 
   /**
@@ -162,9 +316,16 @@ export class OllamaClient implements ModelClient {
     for (let attempt = 0; attempt <= retries; attempt++) {
       const options: Record<string, unknown> = { temperature };
       if (this.numCtx) options.num_ctx = this.numCtx;
+      // the vision model gets a smaller context when the request fits: much less graphics memory
+      const small = this.smallCtx[model];
+      if (small && this.numCtx && small < this.numCtx) {
+        const tokens = (system.length + user.length) / 3 + (images?.length ?? 0) * 1300 + 2000;
+        if (tokens < small * 0.8) options.num_ctx = small;
+      }
       let content: string;
+      let cut: boolean;
       try {
-        content = await this.chat({ model, messages, format: fmt, options });
+        ({ content, cut } = await this.chat({ model, messages, format: fmt, options }));
       } catch (e) {
         if (e instanceof OllamaError && fmt !== "json" && e.message.toLowerCase().includes("format")) {
           fmt = "json"; // an older server without schema support
@@ -177,7 +338,10 @@ export class OllamaClient implements ModelClient {
         return parseJsonLoose(content);
       } catch (e) {
         if (!(e instanceof JSONRepairError)) throw e;
+        // asking again with the cut-off answer attached would only make it longer
+        if (cut) throw new AnswerCutOff(`Model ${model} ran out of room: its answer was cut off after ${content.length} characters.`);
         lastErr = e;
+        console.warn(`[maker] ${model} gave unreadable JSON (try ${attempt + 1}):`, content.slice(0, 2000));
         messages = [
           ...messages.slice(0, 2),
           { role: "assistant", content },
