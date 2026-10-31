@@ -14,9 +14,9 @@ type Spot = "corner" | "side" | "cheek" | "blush" | "above" | "ring";
 /** In order of priority: the first rule that matches a person is used. */
 const RULES: { re: RegExp; file: string; spot: Spot; scale: number }[] = [
   { re: /\b(angry|anger|furious|rage|raging|irritat\w*|annoyed|scowl\w*|glar\w*|livid|seething|fuming)\b/, file: "vein", spot: "corner", scale: 0.42 },
-  { re: /\b(blush\w*|embarrass\w*|shy|bashful|fluster\w*|sheepish|coy)\b/, file: "blush", spot: "blush", scale: 0.85 },
-  { re: /\b(cry|crying|cries|tears?|tearful|teary|sob\w*|weep\w*)\b/, file: "tear", spot: "cheek", scale: 0.26 },
-  { re: /\b(nervous\w*|anxious|sweat\w*|awkward|uneasy|panick\w*|worried|flustered|tense)\b/, file: "sweat", spot: "side", scale: 0.3 },
+  { re: /\b(blush\w*|embarrass\w*|shy|bashful|fluster\w*|sheepish|coy)\b/, file: "blush", spot: "blush", scale: 0.75 },
+  { re: /\b(cry|crying|cries|tears?|tearful|teary|sob\w*|weep\w*)\b/, file: "tear", spot: "cheek", scale: 0.2 },
+  { re: /\b(nervous\w*|anxious|sweat\w*|awkward|uneasy|panick\w*|worried|flustered|tense)\b/, file: "sweat", spot: "side", scale: 0.24 },
   { re: /\b(shock\w*|surpris\w*|startl\w*|stunn\w*|gasp\w*|aghast|wide-eyed|astonish\w*)\b/, file: "shock", spot: "ring", scale: 1.7 },
   { re: /\b(sleep\w*|asleep|drows\w*|dozing|dozes|napping|yawn\w*)\b/, file: "zzz", spot: "above", scale: 0.7 },
   { re: /\b(in love|lovestruck|smitten|adoring|adoringly|affectionate\w*|dreamy|lovingly)\b/, file: "heart", spot: "above", scale: 0.42 },
@@ -40,25 +40,28 @@ function headRect(panel: Page["panels"][number], hb: Box): Rect | null {
   return [x1, y1, x2 - x1, y2 - y1];
 }
 
+/**
+ * Where each kind of sticker sits, the way manga draws it: the centre of the
+ * sticker as a fraction of the head box (0,0 top left, 1,1 bottom right).
+ * The head box includes the hair, so the brow line is about a third down.
+ */
+const ANCHOR: Record<Spot, [number, number]> = {
+  corner: [0.78, 0.18], // anger mark: the upper corner of the forehead
+  side: [0.88, 0.4], // sweat drop: on the temple, beside the brow at the edge of the face
+  cheek: [0.36, 0.7], // tear: just under the eye
+  blush: [0.5, 0.62], // blush: across both cheeks
+  above: [0.85, -0.08], // zzz, heart, notes, sparkles: floating off the top of the head
+  ring: [0.5, 0.5], // shock lines: around the whole head
+};
+
 /** The sticker's box for this spot by this head (page units), before it is kept inside the panel. */
 function spotRect(spot: Spot, head: Rect, w: number, h: number, mirror: boolean): Rect {
   const [hx, hy, hw, hh] = head;
-  const cx = hx + hw / 2;
-  const flip = (x: number) => (mirror ? 2 * cx - x - w : x);
-  switch (spot) {
-    case "corner":
-      return [flip(hx + hw - w * 0.55), hy - h * 0.2, w, h];
-    case "side":
-      return [flip(hx + hw - w * 0.15), hy + hh * 0.05, w, h];
-    case "cheek":
-      return [flip(hx + hw * 0.12 - w * 0.5), hy + hh * 0.5, w, h];
-    case "blush":
-      return [cx - w / 2, hy + hh * 0.6 - h / 2, w, h];
-    case "above":
-      return [flip(hx + hw - w * 0.35), hy - h * 0.85, w, h];
-    case "ring":
-      return [cx - w / 2, hy + hh / 2 - h / 2, w, h];
-  }
+  let [ax, ay] = ANCHOR[spot];
+  if (mirror) ax = 1 - ax; // the other temple / cheek
+  const cx = hx + hw * ax;
+  const cy = spot === "above" ? hy + hh * ay - h / 2 : hy + hh * ay;
+  return [cx - w / 2, cy - h / 2, w, h];
 }
 
 /**
