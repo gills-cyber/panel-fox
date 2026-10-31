@@ -280,7 +280,7 @@ export async function run(opt: RunOptions, log: (s: string) => void = () => {}):
 
   // 6. bubbles + project
   const overlays = await placeBubbles(pages, script, analyses, rtl, cfg.reader ? cfg.reader.id : null, pause);
-  if (opt.stickers) say(`stickers: ${placeStickers(pages, analyses, overlays)}`);
+  if (opt.stickers) say(`stickers: ${placeStickers(pages, analyses, overlays, script)}`);
   const name = opt.name || cfg.title || opt.folderName || "Chapter";
   const file = buildKoma(name, cfg, pages, script, overlays, byName, rtl);
   const added = cfg.characters.filter((c) => c.added && !c.pov).map((c) => c.name);

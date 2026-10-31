@@ -5,13 +5,30 @@
  * and kept clear of the speech bubbles.
  */
 import { ANIME_STICKERS } from "../manga/anime-stickers.ts";
-import { imageToPageRaw, type Overlay } from "./bubbles.ts";
+import { imageToPageRaw, type Overlay, type ScriptLine } from "./bubbles.ts";
 import { PAGE_H, PAGE_W, type Page } from "./layout.ts";
 import type { Analysis, Box } from "./vision.ts";
 
 type Spot = "corner" | "side" | "cheek" | "blush" | "above" | "ring";
 
 /** In order of priority: the first rule that matches a person is used. */
+/**
+ * What the dialogue must show for each sticker: a sticker is only added when the
+ * person's face AND their own lines in that panel both call for it.
+ */
+const STUTTER = /\b(\w{1,3})-\1/i; // "I-I", "w-wait"
+const CUES: Record<string, (text: string, kind: string) => boolean> = {
+  vein: (t, k) => /\b(damn|dammit|idiot|moron|shut up|how dare|get out|bastard|annoying|tch|tsk|grr+|enough|i said|you jerk|seriously)\b/i.test(t) || ((k === "shout" || k === "scream") && /!/.test(t) && !/\?/.test(t)),
+  blush: (t) => STUTTER.test(t) || /\b(don'?t look|stop staring|embarrass\w*|it'?s not like|baka|so shy|you think i'?m|cute\?)\b/i.test(t),
+  tear: (t) => /\b(sob\w*|sniff\w*|hic|cry\w*|tears?|waa+h*|uu+|i'?m so sorry|please don'?t go)\b/i.test(t),
+  sweat: (t) => STUTTER.test(t) || /\b(u+m+|u+h+|er+m*|a-ha|ahaha|heh+|uh-oh|oh no|wait,? wait|that'?s not what|i can explain|sorry,? sorry)\b/i.test(t),
+  shock: (t, k) => /(\?!|!\?)/.test(t) || /\b(no way|impossible|what the|wh+a+t*\?|huh\?|eh\?)/i.test(t) || k === "scream",
+  zzz: (t) => /\b(z{2,}|sleep\w*|tired|yawn\w*|snore\w*|so sleepy|five more minutes)\b/i.test(t),
+  heart: (t) => /[♥❤]|\b(i love|love you|darling|my dear|so beautiful|so handsome|adore|sweetheart)\b/i.test(t),
+  notes: (t) => /[♪♫]|\b(la la|hmm hmm|singing|sing)\b/i.test(t),
+  sparkle: (t) => /\b(amazing|awesome|wow+|yay+|incredible|so cool|can'?t wait|finally|it'?s beautiful)\b/i.test(t),
+};
+
 const RULES: { re: RegExp; file: string; spot: Spot; scale: number }[] = [
   { re: /\b(angry|anger|furious|rage|raging|irritat\w*|annoyed|scowl\w*|glar\w*|livid|seething|fuming)\b/, file: "vein", spot: "corner", scale: 0.42 },
   { re: /\b(blush\w*|embarrass\w*|shy|bashful|fluster\w*|sheepish|coy)\b/, file: "blush", spot: "blush", scale: 0.75 },
@@ -25,6 +42,8 @@ const RULES: { re: RegExp; file: string; spot: Spot; scale: number }[] = [
 ];
 
 type Rect = [number, number, number, number]; // x, y, w, h in page units
+
+const MAX_PER_PAGE = 1;
 
 function overlapArea(a: Rect, b: Rect): number {
   const w = Math.min(a[0] + a[2], b[0] + b[2]) - Math.max(a[0], b[0]);
@@ -66,16 +85,27 @@ function spotRect(spot: Spot, head: Rect, w: number, h: number, mirror: boolean)
 
 /**
  * Adds stickers to `overlays` (per page id) and returns how many were placed.
- * At most one per panel, on the first person whose expression has a matching rule.
+ * Only where the person's face and their own words both call for it, and at
+ * most one per page, so stickers stay an accent.
  */
-export function placeStickers(pages: Page[], analyses: Map<string, Analysis>, overlays: Map<string, Overlay[]>): number {
+export function placeStickers(
+  pages: Page[],
+  analyses: Map<string, Analysis>,
+  overlays: Map<string, Overlay[]>,
+  script: ScriptLine[] = [],
+): number {
+  const linesIn = new Map<string, ScriptLine[]>();
+  for (const l of script) linesIn.set(l.panel_id, [...(linesIn.get(l.panel_id) ?? []), l]);
   let placed = 0;
   let n = 0;
   for (const page of pages) {
     const list = overlays.get(page.id) ?? [];
     overlays.set(page.id, list);
     const taken: Rect[] = list.map((o) => [(o.x / 100) * PAGE_W, (o.y / 100) * PAGE_H, (o.w / 100) * PAGE_W, (o.h / 100) * PAGE_H]);
+    let onPage = 0;
     for (const panel of page.panels) {
+      // a light touch: at most one sticker per page
+      if (onPage >= MAX_PER_PAGE) break;
       const a = analyses.get(panel.item.name);
       if (!a) continue;
       const prect: Rect = [(panel.x / 100) * PAGE_W, (panel.y / 100) * PAGE_H, (panel.w / 100) * PAGE_W, (panel.h / 100) * PAGE_H];
@@ -83,7 +113,9 @@ export function placeStickers(pages: Page[], analyses: Map<string, Analysis>, ov
       for (const c of a.characters ?? []) {
         if (done) break;
         const said = `${c.expression ?? ""} ${c.action ?? ""}`.toLowerCase();
-        const rule = RULES.find((r) => r.re.test(said));
+        // this person's own lines in the panel (narration and other speakers don't count)
+        const own = (linesIn.get(panel.id) ?? []).filter((l) => l.kind !== "narration" && (c.id ? l.speaker_id === c.id : l.speaker === c.name));
+        const rule = RULES.find((r) => r.re.test(said) && own.some((l) => CUES[r.file]?.(l.text, l.kind)));
         if (!rule) continue;
         const head = headRect(panel, c.head_box as Box);
         if (!head) continue;
@@ -137,6 +169,7 @@ export function placeStickers(pages: Page[], analyses: Map<string, Analysis>, ov
           } as unknown as Overlay;
           list.push(sticker);
           placed++;
+          onPage++;
           done = true;
           break;
         }
