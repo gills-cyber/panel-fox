@@ -72,7 +72,15 @@ export class OllamaClient implements ModelClient {
     }
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      throw new OllamaError(`Ollama HTTP ${res.status} on ${path}: ${body.slice(0, 500)}`);
+      // Ollama's own errors are {"error": "..."}: keep the whole message, shorten anything else
+      let said = body.slice(0, 500);
+      try {
+        const j = JSON.parse(body) as { error?: unknown };
+        if (typeof j.error === "string") said = JSON.stringify({ error: j.error.slice(0, 500) });
+      } catch {
+        /* not JSON */
+      }
+      throw new OllamaError(`Ollama HTTP ${res.status} on ${path}: ${said}`);
     }
     return res;
   }

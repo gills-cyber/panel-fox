@@ -349,12 +349,15 @@ export function friendlyError(e: unknown): string {
     }
     // only a web page is clearly something else; anything else is shown as it came
     if (said.startsWith("<")) return "Something at that address answered, but it isn’t Ollama. Check the Ollama address in Advanced.";
-    const kept = " The images it already looked at are kept, so trying again is quicker.";
-    if (/out of memory|unexpectedly stopped|exit status|CUDA error|alloc/i.test(said)) {
-      return `Ollama ran out of graphics memory and stopped the model. Set “Images looked at together” to 1, or pick smaller models, then try again.${kept} (${said.slice(0, 160)})`;
+    const kept = " Any images it already looked at are kept, so trying again is quicker.";
+    if (/out of memory|CUDA error|cudaMalloc|unable to allocate|requires more system memory/i.test(said)) {
+      return `Ollama ran out of memory for this model. Under Advanced, set “Images looked at together” lower or pick smaller models, then try again.${kept} (${said.slice(0, 160)})`;
     }
-    if (/busy|pending requests/i.test(said)) {
-      return `Ollama was too busy to take the request. Set “Images looked at together” lower, then try again.${kept} (${said.slice(0, 160)})`;
+    if (/unexpectedly stopped|runner process has terminated/i.test(said)) {
+      return `Ollama’s model stopped unexpectedly, which usually means it ran out of memory. Try again; if it happens again, set “Images looked at together” lower under Advanced or pick smaller models.${kept} (${said.slice(0, 160)})`;
+    }
+    if (/server busy|maximum pending requests/i.test(said)) {
+      return `Ollama was too busy to take the request; another app may be using it. Try again in a moment.${kept}`;
     }
     return `Ollama stopped with an error (code ${http[1]}${said ? `: ${said.slice(0, 300)}` : ""}).${kept}`;
   }
@@ -363,7 +366,7 @@ export function friendlyError(e: unknown): string {
   }
   if (text.includes("under 18")) return text;
   if (text.includes("No images found")) return "That folder has no images in it (PNG, JPG, WEBP, GIF or BMP).";
-  const kept = " The images it already looked at are kept, so trying again is quicker.";
+  const kept = " Any images it already looked at are kept, so trying again is quicker.";
   const who = /^Model (\S+) /.exec(text)?.[1];
   const short = who ? who.split("/").pop()!.replace(/-GGUF.*$/i, "").replace(/:.*$/, "") : "The model";
   if (text.includes("ran out of room")) {
