@@ -163,6 +163,7 @@ export async function ensureLetterFonts() {
         `400 24px "Comic Neue"`,
         `700 24px "Comic Neue"`,
         `400 48px "Gochi Hand"`,
+        `400 48px "Mochiy Pop One"`,
         `400 48px "Permanent Marker"`,
         `400 48px Yomogi`,
         `400 24px Outfit`,

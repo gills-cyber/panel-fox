@@ -1624,7 +1624,7 @@ function drawHandSfx(ctx, text, w, h, px, color) {
 			ctx.rotate(((i % 2 ? 5 : -4) + wob.rotate * .5) * Math.PI / 180 - .1);
 			ctx.scale(wob.scale, wob.scale);
 			ctx.strokeStyle = "#4a3346";
-			ctx.lineWidth = Math.max(3, px * .28);
+			ctx.lineWidth = Math.max(3, px * .24);
 			ctx.save();
 			ctx.globalAlpha *= .3;
 			ctx.strokeText(ch, -cw / 2, px * .06);

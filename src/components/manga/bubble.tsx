@@ -1747,7 +1747,7 @@ function SfxHand({
                   display: "inline-block",
                   // a little bounce: letters step up and down like chibi lettering
                   transform: `translateY(${i % 2 ? -0.07 : 0.05}em) rotate(${(i % 2 ? 5 : -4) + wob.rotate * 0.5}deg) scale(${wob.scale})`,
-                  WebkitTextStroke: "0.14em #4a3346",
+                  WebkitTextStroke: "0.24em #4a3346",
                   paintOrder: "stroke fill",
                 }}
               >
