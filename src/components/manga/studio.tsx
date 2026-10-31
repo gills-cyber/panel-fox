@@ -123,104 +123,9 @@ type InspectorTab = "format" | "document" | "script";
 type StickerTab = "manga" | "sfx" | "clinic" | "logos";
 
 
-const WELCOME_KEY = "panelfox-welcome-v1";
-
-/** Shown once, on first launch: the three ways to start. */
-function WelcomeSheet({ open, onChoose }: { open: boolean; onChoose: (c: "ai" | "blank" | "open" | "close") => void }) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const choose = useRef(onChoose);
-  choose.current = onChoose;
-  useEffect(() => {
-    if (!open) return;
-    const before = document.activeElement as HTMLElement | null;
-    const t = window.setTimeout(() => rootRef.current?.querySelector<HTMLButtonElement>("[data-koma='welcome-ai']")?.focus(), 30);
-    // Esc works wherever focus is, and Tab stays on the sheet
-    const onKey = (e: KeyboardEvent) => {
-      const root = rootRef.current;
-      if (!root) return;
-      if (e.key === "Escape") {
-        e.preventDefault();
-        choose.current("close");
-      } else if (e.key === "Tab") {
-        const items = Array.from(root.querySelectorAll<HTMLButtonElement>("button"));
-        const at = items.indexOf(document.activeElement as HTMLButtonElement);
-        e.preventDefault();
-        const next = at < 0 ? 0 : (at + (e.shiftKey ? -1 : 1) + items.length) % items.length;
-        items[next]?.focus();
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => {
-      window.clearTimeout(t);
-      window.removeEventListener("keydown", onKey, true);
-      before?.focus?.();
-    };
-  }, [open]);
-  if (!open) return null;
-  const choices = [
-    {
-      id: "ai" as const,
-      icon: <Sparkles className="size-5" />,
-      title: "Make a Chapter with AI…",
-      text: "Pick a folder of your images. Panel Fox lays out the pages and writes the speech bubbles.",
-      tone: "bg-gradient-to-br from-[#5e9dff] to-[#0062d6] text-white",
-    },
-    {
-      id: "blank" as const,
-      icon: <LayoutGrid className="size-5" />,
-      title: "Start with a Blank Page",
-      text: "Choose a panel layout, drop in your art and letter it yourself.",
-      tone: "bg-ink/8 text-ink",
-    },
-    {
-      id: "open" as const,
-      icon: <FolderOpen className="size-5" />,
-      title: "Open a Project…",
-      text: "Continue a manga you saved before, or open a .koma file.",
-      tone: "bg-ink/8 text-ink",
-    },
-  ];
-  return (
-    <div className="fixed inset-0 z-[130] flex items-center justify-center p-4">
-      <div className="koma-scrim absolute inset-0" aria-hidden onClick={() => onChoose("close")} />
-      <div
-        ref={rootRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="welcome-title"
-        data-koma-dialog="welcome"
-        onKeyDown={(e) => e.stopPropagation()}
-        className="koma-glass-surface relative w-full max-w-[440px] rounded-[18px] p-6 shadow-float"
-      >
-        <h2 id="welcome-title" className="text-center text-[19px] font-semibold tracking-tight text-ink">
-          Welcome to Panel Fox
-        </h2>
-        <p className="mt-1 text-center text-[13px] text-muted">How would you like to start?</p>
-        <div className="mt-5 space-y-2">
-          {choices.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              data-koma={`welcome-${c.id}`}
-              onClick={() => onChoose(c.id)}
-              className="flex w-full items-start gap-3 rounded-[12px] border border-line bg-surface/70 p-3 text-left transition-colors hover:bg-ink/5 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-accent/40"
-            >
-              <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-[10px]", c.tone)}>{c.icon}</span>
-              <span className="min-w-0">
-                <span className="block text-[14px] font-semibold text-ink">{c.title}</span>
-                <span className="mt-0.5 block text-[12px] leading-snug text-muted">{c.text}</span>
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /** The chapter maker window is modal: the editor ignores keys and pastes while it is open. */
 function makerWindowShowing() {
-  return typeof document !== "undefined" && document.querySelector('[data-koma-dialog="maker"], [data-koma-dialog="welcome"]') !== null;
+  return typeof document !== "undefined" && document.querySelector('[data-koma-dialog="maker"]') !== null;
 }
 
 export function Studio() {
@@ -242,15 +147,9 @@ export function Studio() {
   const stageRef = useRef<HTMLElement>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [makerOpen, setMakerOpen] = useState(false);
-  const [welcomeOpen, setWelcomeOpen] = useState(false);
   useEffect(() => {
     const open = () => setMakerOpen(true);
     window.addEventListener("panelfox:make-chapter", open);
-    try {
-      if (!localStorage.getItem(WELCOME_KEY)) setWelcomeOpen(true);
-    } catch {
-      /* no storage: skip the welcome */
-    }
     return () => window.removeEventListener("panelfox:make-chapter", open);
   }, []);
   const [saveOpen, setSaveOpen] = useState(false);
@@ -1504,20 +1403,6 @@ export function Studio() {
       />
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
       <MakerDialog open={makerOpen} onClose={() => setMakerOpen(false)} />
-      <WelcomeSheet
-        open={welcomeOpen}
-        onChoose={(choice) => {
-          setWelcomeOpen(false);
-          try {
-            localStorage.setItem(WELCOME_KEY, "1");
-          } catch {
-            /* fine */
-          }
-          if (choice === "ai") setMakerOpen(true);
-          else if (choice === "open") setProjectsOpen(true);
-          else if (choice === "blank") handleNew();
-        }}
-      />
     </div>
   );
 }
