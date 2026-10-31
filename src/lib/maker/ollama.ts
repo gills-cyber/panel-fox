@@ -112,8 +112,63 @@ export class OllamaClient implements ModelClient {
     return out;
   }
 
+  /**
+   * The models this run uses. Only the one being asked is kept loaded: the others are
+   * unloaded first, so the model in use fits on the graphics card instead of spilling
+   * onto the much slower CPU.
+   */
+  models: string[] = [];
+  private active: string | null = null;
+  private switching: Promise<void> | null = null;
+
+  private async useModel(model: string): Promise<void> {
+    if (!this.models.length) return;
+    if (this.switching) await this.switching;
+    if (this.active === model) return;
+    if (!this.switching) {
+      this.switching = (async () => {
+        const plain = (n: string) => (n.endsWith(":latest") ? n.slice(0, -7) : n);
+        let running: string[] = [];
+        try {
+          const res = await this.request("/api/ps");
+          const body = (await res.json()) as { models?: { name?: string; model?: string }[] };
+          running = (body.models ?? []).map((m) => plain(m.name || m.model || ""));
+        } catch {
+          running = [];
+        }
+        for (const m of this.models) {
+          if (plain(m) === plain(model) || !running.includes(plain(m))) continue;
+          try {
+            const res = await this.request("/api/generate", { model: m, keep_alive: 0 });
+            await res.text();
+          } catch {
+            /* unloading is only a speed-up */
+          }
+        }
+        this.active = model;
+      })().finally(() => {
+        this.switching = null;
+      });
+    }
+    await this.switching;
+    if (this.active !== model) await this.useModel(model);
+  }
+
+  private noThink = true;
+
   private async chat(payload: Record<string, unknown>): Promise<string> {
-    const res = await this.request("/api/chat", { ...payload, keep_alive: this.keepAlive, stream: true });
+    await this.useModel(String(payload.model));
+    // Thinking models (such as qwen3-vl) can write thousands of hidden words per
+    // image; the maker only needs the JSON answer, so thinking is turned off.
+    // A server that rejects the flag is asked again without it.
+    let res: Response;
+    try {
+      res = await this.request("/api/chat", { ...payload, ...(this.noThink ? { think: false } : {}), keep_alive: this.keepAlive, stream: true });
+    } catch (e) {
+      if (!(this.noThink && e instanceof OllamaError && /think/i.test(e.message))) throw e;
+      this.noThink = false;
+      res = await this.request("/api/chat", { ...payload, keep_alive: this.keepAlive, stream: true });
+    }
     const reader = res.body?.getReader();
     if (!reader) return "";
     const dec = new TextDecoder();

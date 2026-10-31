@@ -508,7 +508,17 @@ export function MakerDialog({ open, onClose }: { open: boolean; onClose: () => v
               />
             </div>
             <p className="mt-3 text-[11px] text-muted">
-              {elapsed < 60 ? "Working… big models can take a while." : `Working… ${Math.floor(elapsed / 60)} min so far.`}
+              {(() => {
+                const m = progress.step === "looking" ? /^(\d+) of (\d+) images done$/.exec(progress.detail) : null;
+                const done = m ? Number(m[1]) : 0;
+                const total = m ? Number(m[2]) : 0;
+                const sofar = elapsed < 60 ? "" : ` ${Math.floor(elapsed / 60)} min so far.`;
+                if (done > 0 && total > done) {
+                  const left = Math.round(((elapsed / done) * (total - done)) / 60);
+                  return `Working…${sofar} About ${left < 1 ? "a minute" : `${left} min`} left for the images.`;
+                }
+                return elapsed < 60 ? "Working… big models can take a while." : `Working…${sofar}`;
+              })()}
             </p>
             <p className="mt-1 text-[11px] text-muted">You can keep this window open and wait; your current manga is saved first.</p>
           </div>

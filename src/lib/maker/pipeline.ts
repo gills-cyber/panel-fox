@@ -121,6 +121,7 @@ export async function run(opt: RunOptions, log: (s: string) => void = () => {}):
       opt.signal,
       opt.keepAlive ?? 3600,
     );
+    if (visionModel !== dialogueModel) (client as OllamaClient).models = [visionModel, dialogueModel];
     const missing = await client.checkModels([visionModel, dialogueModel]);
     if (missing.length) {
       throw new PipelineError(

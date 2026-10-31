@@ -148,6 +148,27 @@ test("every Ollama call asks to keep the model loaded", async () => {
   }
   assert.equal(sent[0]!.keep_alive, 3600);
   assert.equal(sent[1]!.keep_alive, -1);
+  assert.equal(sent[0]!.think, false, "thinking is turned off");
+});
+
+test("a server that rejects the think flag is asked again without it", async () => {
+  const { OllamaClient } = await import("./ollama.ts");
+  const sent: Record<string, unknown>[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body));
+    sent.push(body);
+    if ("think" in body) return new Response('{"error":"unknown field think"}', { status: 400 });
+    return new Response(JSON.stringify({ message: { content: '{"ok": true}' }, done: true }) + "\n");
+  }) as typeof fetch;
+  try {
+    const c = new OllamaClient("localhost:11434");
+    assert.deepEqual(await c.chatJson("m", "s", "u"), { ok: true });
+    await c.chatJson("m", "s", "u");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.deepEqual(sent.map((b) => "think" in b), [true, false, false]);
 });
 
 test("a run reports how long each step took", async () => {
@@ -160,4 +181,30 @@ test("a run reports how long each step took", async () => {
   assert.ok(times.some((l) => /^\[TIME\] Vision analysis, 1 images: \d+\.\ds$/.test(l)));
   assert.ok(times.some((l) => l.startsWith("[TIME] Script generation")));
   assert.ok(times.at(-1)!.startsWith("[TIME] Total: "));
+});
+
+test("the other model is unloaded before a model is used", async () => {
+  const { OllamaClient } = await import("./ollama.ts");
+  const calls: string[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    const path = new URL(url).pathname;
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    calls.push(`${path} ${body.model ?? ""}${body.keep_alive === 0 ? " unload" : ""}`);
+    if (path === "/api/ps") return new Response(JSON.stringify({ models: [{ name: "big:32b" }, { name: "other-app:7b" }] }));
+    if (path === "/api/generate") return new Response("{}");
+    return new Response(JSON.stringify({ message: { content: "{}" }, done: true }) + "\n");
+  }) as typeof fetch;
+  try {
+    const c = new OllamaClient("http://localhost:11434");
+    c.models = ["eyes:8b", "big:32b"];
+    await Promise.all([c.chatJson("eyes:8b", "s", "u"), c.chatJson("eyes:8b", "s", "u")]);
+    await c.chatJson("big:32b", "s", "u");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  // the 32b model is unloaded once before the vision calls; another app's model is left alone
+  assert.deepEqual(calls.slice(0, 4), ["/api/ps ", "/api/generate big:32b unload", "/api/chat eyes:8b", "/api/chat eyes:8b"]);
+  assert.ok(!calls.some((c) => c.includes("other-app")));
+  assert.deepEqual(calls.slice(4, 6), ["/api/ps ", "/api/chat big:32b"]);
 });
