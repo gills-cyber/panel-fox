@@ -251,7 +251,15 @@ export async function ollamaStatus(adv: MakerAdvanced): Promise<OllamaStatus> {
 // ---------- progress ------------------------------------------------------------
 
 export type Step = "starting" | "looking" | "ordering" | "layout" | "writing" | "saving" | "done";
-export type Progress = { step: Step; detail: string; fraction: number; notes: string[]; timings: string[] };
+export type Progress = {
+  step: Step;
+  detail: string;
+  fraction: number;
+  notes: string[];
+  timings: string[];
+  /** images reused from a stopped run, so the time-left estimate counts only new ones */
+  reused?: number;
+};
 
 /** Turn the engine's log lines into plain-language progress. */
 export function progressFromLog(line: string, p: Progress): Progress {
@@ -265,7 +273,8 @@ export function progressFromLog(line: string, p: Progress): Progress {
   if ((m = /vision (\d+)\/(\d+)/.exec(l))) {
     const i = +m[1]!;
     const n = +m[2]!;
-    return { ...next, step: "looking", detail: `${i} of ${n} images done`, fraction: 0.05 + (0.5 * i) / Math.max(1, n) };
+    const reused = l.includes("reusing") ? i : p.reused;
+    return { ...next, reused, step: "looking", detail: `${i} of ${n} images done`, fraction: 0.05 + (0.5 * i) / Math.max(1, n) };
   }
   if (l.startsWith("mock mode")) next.notes.push("Test run: placeholder text, no models were used.");
   else if (l.includes("using cached vision")) return { ...next, step: "looking", detail: "Already seen these images, reusing", fraction: 0.5 };

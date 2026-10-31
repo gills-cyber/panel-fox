@@ -354,7 +354,7 @@ export function MakerDialog({ open, onClose }: { open: boolean; onClose: () => v
     let firstSeen = false;
     const onProgress = (p: Progress) => {
       const m = p.step === "looking" ? /^(\d+) of \d+ images done$/.exec(p.detail) : null;
-      if (!firstSeen && m && Number(m[1]) > 0) {
+      if (!firstSeen && m && Number(m[1]) > (p.reused ?? 0)) {
         firstSeen = true;
         setFirstImage({ at: Date.now(), done: Number(m[1]) });
       }
@@ -525,11 +525,12 @@ export function MakerDialog({ open, onClose }: { open: boolean; onClose: () => v
                 const done = m ? Number(m[1]) : 0;
                 const total = m ? Number(m[2]) : 0;
                 const sofar = elapsed < 60 ? "" : ` ${Math.floor(elapsed / 60)} min so far.`;
-                if (done > 0 && total > done) {
+                const fresh = done - (progress.reused ?? 0);
+                if (fresh > 0 && total > done) {
                   const each =
                     firstImage && done > firstImage.done
                       ? (now - firstImage.at) / 1000 / (done - firstImage.done)
-                      : elapsed / done;
+                      : elapsed / fresh;
                   const left = Math.round((each * (total - done)) / 60);
                   return `Working…${sofar} About ${left < 1 ? "a minute" : `${left} min`} left for the images.`;
                 }
