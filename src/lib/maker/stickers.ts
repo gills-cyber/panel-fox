@@ -42,7 +42,8 @@ function headRect(panel: Page["panels"][number], hb: Box): Rect | null {
 
 /**
  * Where each kind of sticker sits, the way manga draws it: the centre of the
- * sticker as a fraction of the head box (0,0 top left, 1,1 bottom right).
+ * sticker as a fraction of the head box (0,0 top left, 1,1 bottom right);
+ * for "above" it is the sticker's bottom edge.
  * The head box includes the hair, so the brow line is about a third down.
  */
 const ANCHOR: Record<Spot, [number, number]> = {
@@ -57,9 +58,8 @@ const ANCHOR: Record<Spot, [number, number]> = {
 /** The sticker's box for this spot by this head (page units), before it is kept inside the panel. */
 function spotRect(spot: Spot, head: Rect, w: number, h: number, mirror: boolean): Rect {
   const [hx, hy, hw, hh] = head;
-  let [ax, ay] = ANCHOR[spot];
-  if (mirror) ax = 1 - ax; // the other temple / cheek
-  const cx = hx + hw * ax;
+  const [ax, ay] = ANCHOR[spot];
+  const cx = hx + hw * (mirror ? 1 - ax : ax); // mirrored: the other temple / cheek
   const cy = spot === "above" ? hy + hh * ay - h / 2 : hy + hh * ay;
   return [cx - w / 2, cy - h / 2, w, h];
 }
@@ -95,15 +95,16 @@ export function placeStickers(pages: Page[], analyses: Map<string, Analysis>, ov
         const w = Math.min(Math.max(head[2] * rule.scale, PAGE_W * 0.04), PAGE_W * 0.3);
         const h = (w * (art.h ?? 20)) / (art.w ?? 20);
         for (const mirror of [false, true]) {
-          let r = spotRect(rule.spot, head, w, h, mirror);
-          // keep it inside the panel
-          r = [
-            Math.min(Math.max(r[0], prect[0] + 4), prect[0] + prect[2] - r[2] - 4),
-            Math.min(Math.max(r[1], prect[1] + 4), prect[1] + prect[3] - r[3] - 4),
-            r[2],
-            r[3],
+          const want = spotRect(rule.spot, head, w, h, mirror);
+          if (want[2] > prect[2] - 8 || want[3] > prect[3] - 8) break;
+          // keep it inside the panel, but only by a nudge: pushed further it would land on the face
+          const r: Rect = [
+            Math.min(Math.max(want[0], prect[0] + 4), prect[0] + prect[2] - want[2] - 4),
+            Math.min(Math.max(want[1], prect[1] + 4), prect[1] + prect[3] - want[3] - 4),
+            want[2],
+            want[3],
           ];
-          if (r[2] > prect[2] - 8 || r[3] > prect[3] - 8) break;
+          if (Math.abs(r[0] - want[0]) > 0.25 * w || Math.abs(r[1] - want[1]) > 0.25 * h) continue;
           // and clear of the bubbles and other stickers
           if (taken.some((t) => overlapArea(r, t) > 0.15 * r[2] * r[3])) continue;
           taken.push(r);
