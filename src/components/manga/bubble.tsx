@@ -2,6 +2,7 @@ import { memo, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProp
 import { FlipHorizontal2, FlipVertical2 } from "lucide-react";
 import type { Overlay, ResizeHandle, StickerId } from "@/lib/manga/types";
 import { HANDLE_CURSOR } from "@/lib/manga/resize";
+import { isAnimeStickerSrc } from "@/lib/manga/anime-stickers";
 import { glyphWobble, moveOverlay, resizeOverlay, THOUGHT_CLOUD, chainConnectorPath, HEART_PATH, RAGE_PATH, isGlowInk, glowStrength, isDialogue, fitBubbleSize, wrapHeightForBox, speechTailGeom, speechTailPath, thoughtTrail, canRotate, wrapDeg, overlayOpacity, tintsRaster, stickerPaint, STICKER_COLORS, scaleOverlayBy, scaleOverlaySize, LETTER_FONT_MAX, LETTER_FONT_MIN, pageOverlays, letterRefHeight, letterLockHeight, isClearPaint } from "@/lib/manga/lettering";
 import {
   balloonStyleOf,
@@ -1793,6 +1794,8 @@ function RasterMark({ src, color }: { src: string; color?: string }) {
 function StickerLookBar({ overlay }: { overlay: Overlay }) {
   const pct = Math.round(overlayOpacity(overlay) * 100);
   const raster = Boolean(overlay.src);
+  // the chibi stickers are full-colour art: one flat tint would wipe out their outlines and faces
+  const fullColour = isAnimeStickerSrc(overlay.src);
   const current = (overlay.color || "").toLowerCase();
   const sizePct = overlay.w;
   return (
@@ -1820,6 +1823,7 @@ function StickerLookBar({ overlay }: { overlay: Overlay }) {
           +
         </button>
       </div>
+      {fullColour ? null : (
       <div className="koma-swatches" data-koma="sticker-color">
         {raster ? (
           <button
@@ -1862,6 +1866,7 @@ function StickerLookBar({ overlay }: { overlay: Overlay }) {
           />
         </label>
       </div>
+      )}
       <div className="koma-opacity" data-koma="sticker-opacity">
         <Slider
           min={0}

@@ -239,8 +239,7 @@ export class OllamaClient implements ModelClient {
         // one request at a time from now on, with the memory freed first
         if (this.limit !== 1) this.onNote?.("Ollama ran out of memory, so the rest is done one request at a time.");
         this.limit = 1;
-        done();
-        await this.freeMemory(model);
+        await this.freeMemory(model); // the slot is kept, so nothing reloads the model meanwhile
         continue;
       } finally {
         done();

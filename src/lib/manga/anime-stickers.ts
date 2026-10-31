@@ -181,3 +181,8 @@ export function animeStickerSize(src?: string): { w: number; h: number } {
   const hit = animeStickerBySrc(src);
   return { w: hit?.w ?? 22, h: hit?.h ?? 24 };
 }
+
+/** True for one of the built-in chibi sticker images. */
+export function isAnimeStickerSrc(src?: string): boolean {
+  return Boolean(src && ANIME_STICKERS.some((s) => s.src === src));
+}
