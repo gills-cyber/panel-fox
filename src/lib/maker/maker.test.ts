@@ -242,7 +242,7 @@ test("pages whose script can't be read are written again one page at a time", as
   const mock = new MockClient(loadConfig(cfgIn));
   let failed = 0;
   const client = {
-    checkModels: (m: string[]) => mock.checkModels(m),
+    checkModels: () => mock.checkModels(),
     async chatJson(model: string, system: string, user: string, imgs?: string[] | null, schema?: Record<string, unknown> | null) {
       if (schema === SCRIPT_SCHEMA && failed === 0) {
         failed++;
