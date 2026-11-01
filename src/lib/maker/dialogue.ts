@@ -529,7 +529,7 @@ export async function writeScript(
     try {
       raw = await client.chatJson(model, DIALOGUE_SYSTEM, prompt, null, SCRIPT_SCHEMA, temperature);
     } catch (e) {
-      const unreadable = e instanceof Error && /did not return valid JSON|ran out of room/.test(e.message);
+      const unreadable = e instanceof Error && /did not return valid JSON|ran out of room|stuck repeating/.test(e.message);
       if (!unreadable || chunk.length < 2) throw e;
       log(`  dialogue: answer for pages ${start + 1}-${start + chunk.length} could not be read; writing them one page at a time`);
       oneByOneUntil = start + chunk.length;

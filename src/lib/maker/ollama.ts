@@ -313,8 +313,12 @@ export class OllamaClient implements ModelClient {
     messages.push(userMsg);
     let fmt: unknown = schema ?? "json";
     let lastErr: unknown = null;
+    let looped = 0; // times the model got stuck repeating itself
     for (let attempt = 0; attempt <= retries; attempt++) {
-      const options: Record<string, unknown> = { temperature };
+      // after a repetition loop, ask again a little warmer and with a penalty for repeating
+      const options: Record<string, unknown> = looped
+        ? { temperature: Math.min(1.1, temperature + 0.25 * looped), repeat_penalty: 1.1 + 0.1 * looped, repeat_last_n: 256 }
+        : { temperature };
       if (this.numCtx) options.num_ctx = this.numCtx;
       // the vision model gets a smaller context when the request fits: much less graphics memory
       const small = this.smallCtx[model];
@@ -331,6 +335,13 @@ export class OllamaClient implements ModelClient {
           fmt = "json"; // an older server without schema support
           lastErr = e;
           continue;
+        }
+        // Ollama stops a model that keeps writing the same thing ("token repeat limit reached")
+        if (e instanceof OllamaError && /repeat limit|repetition/i.test(e.message)) {
+          looped++;
+          lastErr = e;
+          if (attempt < retries) continue;
+          throw new OllamaError(`Model ${model} got stuck repeating itself (${e.message.replace(/^Ollama HTTP \d+ on \S+: /, "")})`);
         }
         throw e;
       }

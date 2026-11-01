@@ -377,6 +377,9 @@ export function friendlyError(e: unknown): string {
   const kept = " Any images it already looked at are kept, so trying again is quicker.";
   const who = /^Model (\S+) /.exec(text)?.[1];
   const short = who ? who.split("/").pop()!.replace(/-GGUF.*$/i, "").replace(/:.*$/, "") : "The model";
+  if (text.includes("stuck repeating")) {
+    return `${short} got stuck repeating itself, even after a few tries. Press Create Chapter to try again, or choose a different model for this step.${kept}`;
+  }
   if (text.includes("ran out of room")) {
     return `${short}’s answer got too long and was cut off. Try again, or choose a model that handles longer answers.${kept}`;
   }

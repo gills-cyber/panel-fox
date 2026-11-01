@@ -367,3 +367,25 @@ test("faces that call for it get a chibi sticker, sized to the head and clear of
   const plain = await run({ images, config: cfgIn, mock: true, client }, () => {});
   assert.ok(!plain.file.doc.pages.some((p) => (p.overlays as { kind: string }[]).some((o) => o.kind === "sticker")));
 });
+
+test("a model stuck repeating itself is asked again, warmer and with a repeat penalty", async () => {
+  const { OllamaClient } = await import("./ollama.ts");
+  const sent: Record<string, unknown>[] = [];
+  let fails = 1;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    sent.push(JSON.parse(String(init.body)));
+    if (fails-- > 0) return new Response('{"error":"prediction aborted, token repeat limit reached"}', { status: 500 });
+    return new Response(JSON.stringify({ message: { content: '{"ok": true}' }, done: true }) + "\n");
+  }) as typeof fetch;
+  try {
+    assert.deepEqual(await new OllamaClient("localhost:11434").chatJson("m", "s", "u", null, null, 0.2), { ok: true });
+    fails = 9;
+    await assert.rejects(new OllamaClient("localhost:11434").chatJson("m", "s", "u"), /stuck repeating/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  const o = sent[1]!.options as { temperature: number; repeat_penalty?: number };
+  assert.equal((sent[0]!.options as { repeat_penalty?: number }).repeat_penalty, undefined);
+  assert.ok(o.temperature > 0.2 && (o.repeat_penalty ?? 0) > 1);
+});
