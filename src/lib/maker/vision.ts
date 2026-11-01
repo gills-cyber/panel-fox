@@ -576,7 +576,9 @@ Return JSON with:
   first-pass scores only when the story context changes them. Use 5 sparingly.
 - story_notes: two or three sentences describing the story arc.`;
   log("  planning reading order");
-  const raw = await client.chatJson(model, "You are a manga editor. Answer with one JSON object.", prompt, null, ORDER_SCHEMA, 0.3);
+  // about 60 tokens per image covers its name in the order and its score; one retry,
+  // because the chapter can keep the folder order when this fails
+  const raw = await client.chatJson(model, "You are a manga editor. Answer with one JSON object.", prompt, null, ORDER_SCHEMA, 0.3, 1, 600 + 60 * names.length);
   return validateOrder(raw, names, analyses);
 }
 

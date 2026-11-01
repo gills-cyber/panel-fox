@@ -15,6 +15,8 @@ export interface ModelClient {
     schema?: Record<string, unknown> | null,
     temperature?: number,
     retries?: number,
+    /** the longest answer expected, in tokens: a longer one is a loop and is stopped */
+    maxTokens?: number,
   ): Promise<unknown>;
 }
 
@@ -335,6 +337,7 @@ export class OllamaClient implements ModelClient {
     schema: Record<string, unknown> | null = null,
     temperature = 0.7,
     retries = 2,
+    maxTokens?: number,
   ): Promise<unknown> {
     let messages: Record<string, unknown>[] = [{ role: "system", content: system }];
     const userMsg: Record<string, unknown> = { role: "user", content: user };
@@ -349,6 +352,7 @@ export class OllamaClient implements ModelClient {
         ? { temperature: Math.min(1.1, temperature + 0.25 * looped), repeat_penalty: 1.05 + 0.05 * looped, repeat_last_n: 128 }
         : { temperature };
       if (this.numCtx) options.num_ctx = this.numCtx;
+      if (maxTokens) options.num_predict = maxTokens;
       // the vision model gets a smaller context for one image, when the request fits: much
       // less graphics memory. Text-only calls (the reading order lists every image and can
       // answer at length) keep the full context.
