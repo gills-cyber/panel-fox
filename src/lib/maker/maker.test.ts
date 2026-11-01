@@ -399,6 +399,6 @@ test("open-ended lists in the answer format get a maximum", async () => {
   assert.equal(v.properties.characters.items.properties.head_box.maxItems, 4);
   assert.equal(v.properties.empty_regions.maxItems, 8);
   assert.equal(v.properties.empty_regions.items.maxItems, 4);
-  assert.equal((boundLists(SCRIPT_SCHEMA) as any).properties.lines.maxItems, 80);
+  assert.equal((boundLists(SCRIPT_SCHEMA) as any).properties.lines.maxItems, undefined, "script length is never cut");
   assert.equal((ANALYSIS_SCHEMA as any).properties.characters.maxItems, undefined, "the original is left alone");
 });

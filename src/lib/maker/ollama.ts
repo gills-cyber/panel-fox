@@ -47,7 +47,7 @@ export function isLocalHost(raw: string): boolean {
  * held to the format has to stop instead of adding near-identical entries until
  * Ollama aborts it for repeating ("token repeat limit reached").
  */
-const LIST_CAPS: Record<string, number> = { characters: 8, empty_regions: 8, regions: 12, art_text: 12, lines: 80 };
+const LIST_CAPS: Record<string, number> = { characters: 8, empty_regions: 8, regions: 12, art_text: 12 };
 export function boundLists(schema: Record<string, unknown>, key = ""): Record<string, unknown> {
   const out: Record<string, unknown> = { ...schema };
   if (out.type === "array" && out.maxItems === undefined) {
