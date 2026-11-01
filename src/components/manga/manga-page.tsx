@@ -1,3 +1,4 @@
+import { Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { boxesForPage } from "@/lib/manga/templates";
 import { useCurrentPage, useStudio } from "@/lib/manga/store";
@@ -657,12 +658,29 @@ export function MangaPage({
           </defs>
         </svg>
         {boxes.length === 0 && !draftPlace && !readOnly ? (
-          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-8 text-center">
-            <p className="max-w-[16rem] text-[13px] leading-relaxed text-muted">
-              {placing
-                ? "Drag on the page to draw a panel."
-                : "Right-click or drag on the paper to insert a panel. Templates are a starting point — each page can be different."}
-            </p>
+          <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 px-8 text-center">
+            {placing ? (
+              <p className="max-w-[16rem] text-[13px] leading-relaxed text-muted">Drag on the page to draw a panel.</p>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  data-koma="empty-make-ai"
+                  className="pointer-events-auto inline-flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-[13px] font-semibold text-white shadow-[0_2px_8px_rgb(0_113_227/0.35)] transition-transform hover:brightness-110 active:scale-[0.97]"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.dispatchEvent(new Event("panelfox:make-chapter"));
+                  }}
+                >
+                  <Sparkles className="size-4" />
+                  Make a Chapter with AI…
+                </button>
+                <p className="max-w-[17rem] text-[12px] leading-relaxed text-muted">
+                  Turn a folder of your images into finished pages. Or right-click or drag on the paper to draw panels yourself.
+                </p>
+              </>
+            )}
           </div>
         ) : null}
         {boxes.map((box) => {

@@ -466,22 +466,77 @@ export async function analyseImages(
   forModel: (img: { name: string; bytes: Uint8Array }, maxSide: number) => Promise<string>,
   useRefs = true,
   log: (s: string) => void = () => {},
+  parallel = 1,
+  /** images already looked at (a stopped run): reused, not sent again; `onEach` hears each new result */
+  more: { known?: Map<string, Analysis>; onEach?: (name: string, a: Analysis) => void; strict?: boolean } = {},
 ): Promise<Map<string, Analysis>> {
   const refs = useRefs ? cfg.characters.filter((c) => c.reference) : [];
   const refB64: string[] = [];
   for (const c of refs) refB64.push(await forModel(c.reference!, 768));
   const prompt = buildVisionPrompt(cfg, refs.map((c) => c.name));
-  const results = new Map<string, Analysis>();
-  for (let i = 0; i < images.length; i++) {
-    const img = images[i]!;
-    log(`  vision ${i + 1}/${images.length}: ${img.name}`);
-    let raw = await client.chatJson(model, VISION_SYSTEM, prompt, [...refB64, await forModel(img, 1280)], ANALYSIS_SCHEMA, 0.2);
-    if (Array.isArray(raw)) raw = { characters: raw };
-    const res = normalizeAnalysis(raw, cfg);
-    checkAdults(new Map([[img.name, res]]));
-    results.set(img.name, res);
+  // Up to `parallel` images are looked at at once. Results keep the folder's order, and
+  // when several fail, the error of the earliest image is the one reported.
+  const n = images.length;
+  const out: Analysis[] = new Array(n);
+  let next = 0;
+  let finished = 0;
+  const fail: { first: { i: number; e: unknown } | null } = { first: null };
+  const skipped: string[] = [];
+  images.forEach((img, i) => {
+    const a = more.known?.get(img.name);
+    if (a) out[i] = a;
+  });
+  finished = out.filter(Boolean).length;
+  if (finished) log(`  vision ${finished}/${n}: reusing ${finished} images looked at before`);
+  const worker = async () => {
+    for (;;) {
+      if (fail.first) return;
+      const i = next++;
+      if (i >= n) return;
+      if (out[i]) continue;
+      const img = images[i]!;
+      const t0 = Date.now();
+      try {
+        let raw = await client.chatJson(model, VISION_SYSTEM, prompt, [...refB64, await forModel(img, 1280)], ANALYSIS_SCHEMA, 0.2);
+        if (Array.isArray(raw)) raw = { characters: raw };
+        const res = normalizeAnalysis(raw, cfg);
+        checkAdults(new Map([[img.name, res]]));
+        out[i] = res;
+        more.onEach?.(img.name, res);
+      } catch (e) {
+        // an image the model keeps looping on is left out, rather than failing the chapter
+        if (e instanceof Error && /ran out of room|stuck repeating|did not return valid JSON/.test(e.message) && !more.strict) {
+          skipped.push(img.name);
+          finished++;
+          log(`  vision ${finished}/${n}: ${img.name} (skipped)`);
+          continue;
+        }
+        // another image may have failed while this one was waiting
+        const prev = fail.first as { i: number; e: unknown } | null;
+        if (!prev || i < prev.i) fail.first = { i, e };
+        return;
+      }
+      finished++;
+      log(`  vision ${finished}/${n}: ${img.name}`);
+      log(`[TIME] Image ${i + 1} vision analysis (${img.name}): ${secs(Date.now() - t0)}`);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(Math.trunc(parallel) || 1, n)) }, worker));
+  if (fail.first) throw fail.first.e;
+  if (skipped.length) {
+    if (skipped.length === n) throw new Error(`Model ${model} did not return valid JSON for any image`);
+    log(`note: Left out ${skipped.length === 1 ? "1 image" : `${skipped.length} images`} the vision model couldn’t describe: ${skipped.join(", ")}.`);
   }
+  const results = new Map<string, Analysis>();
+  images.forEach((img, i) => {
+    if (out[i]) results.set(img.name, out[i]!);
+  });
   return results;
+}
+
+/** 12345 ms -> "12.3s" */
+export function secs(ms: number): string {
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 function beatNote(b: Beat | undefined): string {
@@ -521,7 +576,9 @@ Return JSON with:
   first-pass scores only when the story context changes them. Use 5 sparingly.
 - story_notes: two or three sentences describing the story arc.`;
   log("  planning reading order");
-  const raw = await client.chatJson(model, "You are a manga editor. Answer with one JSON object.", prompt, null, ORDER_SCHEMA, 0.3);
+  // about 60 tokens per image covers its name in the order and its score; one retry,
+  // because the chapter can keep the folder order when this fails
+  const raw = await client.chatJson(model, "You are a manga editor. Answer with one JSON object.", prompt, null, ORDER_SCHEMA, 0.3, 1, 600 + 60 * names.length);
   return validateOrder(raw, names, analyses);
 }
 

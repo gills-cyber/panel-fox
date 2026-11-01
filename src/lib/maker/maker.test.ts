@@ -87,3 +87,385 @@ test("a test run turns images into a chapter with pages and bubbles", async () =
   assert.equal(panels.length, 3);
   assert.ok(pages.some((p) => (p.overlays as unknown[]).length > 0), "some page has speech bubbles");
 });
+
+test("images are looked at in parallel and keep their order", async () => {
+  const { analyseImages } = await import("./vision.ts");
+  const cfg = loadConfig({ characters: [{ name: "Aiko" }] });
+  const images = Array.from({ length: 6 }, (_, i) => ({ name: `${i + 1}.png`, bytes: new Uint8Array([i]) }));
+  let live = 0;
+  let most = 0;
+  const client = {
+    async checkModels() {
+      return [];
+    },
+    async chatJson(_m: string, _s: string, _u: string, imgs: string[] | null) {
+      live++;
+      most = Math.max(most, live);
+      const which = Number(imgs!.at(-1));
+      // later images answer first, to shuffle the finishing order
+      await new Promise((r) => setTimeout(r, 30 - which * 4));
+      live--;
+      return { scene_summary: `scene ${which}`, characters: [] };
+    },
+  };
+  const got = await analyseImages(client, "m", cfg, images, async (img) => String(img.bytes[0]), false, () => {}, 4);
+  assert.equal(most, 4);
+  assert.deepEqual(Array.from(got.keys()), images.map((i) => i.name));
+  assert.deepEqual(Array.from(got.values()).map((a) => a.scene_summary), images.map((_, i) => `scene ${i}`));
+});
+
+test("the earliest failing image is the one reported", async () => {
+  const { analyseImages } = await import("./vision.ts");
+  const cfg = loadConfig({ characters: [{ name: "Aiko" }] });
+  const images = Array.from({ length: 4 }, (_, i) => ({ name: `${i + 1}.png`, bytes: new Uint8Array([i]) }));
+  const client = {
+    async checkModels() {
+      return [];
+    },
+    async chatJson(_m: string, _s: string, _u: string, imgs: string[] | null) {
+      const which = Number(imgs!.at(-1));
+      await new Promise((r) => setTimeout(r, 20 - which * 5));
+      if (which >= 1) throw new Error(`bad ${which}`);
+      return { characters: [] };
+    },
+  };
+  await assert.rejects(analyseImages(client, "m", cfg, images, async (img) => String(img.bytes[0]), false, () => {}, 4), /bad 1/);
+});
+
+test("an image the model keeps looping on is left out, and the rest carry on", async () => {
+  const { analyseImages } = await import("./vision.ts");
+  const cfg = loadConfig({ characters: [{ name: "Aiko" }] });
+  const images = Array.from({ length: 3 }, (_, i) => ({ name: `${i + 1}.png`, bytes: new Uint8Array([i]) }));
+  const client = {
+    async checkModels() {
+      return [];
+    },
+    async chatJson(_m: string, _s: string, _u: string, imgs: string[] | null) {
+      const which = Number(imgs!.at(-1));
+      if (which === 1) throw new Error("Model m ran out of room for its answer");
+      return { scene_summary: `scene ${which}`, characters: [] };
+    },
+  };
+  const lines: string[] = [];
+  const got = await analyseImages(client, "m", cfg, images, async (img) => String(img.bytes[0]), false, (s) => lines.push(s), 2);
+  assert.deepEqual(Array.from(got.keys()), ["1.png", "3.png"]);
+  assert.ok(lines.some((l) => l.startsWith("note: ") && l.includes("2.png")));
+  // when every image fails, the chapter still stops with a clear error
+  const none = { ...client, async chatJson() { throw new Error("Model m got stuck repeating itself"); } };
+  await assert.rejects(analyseImages(none, "m", cfg, images, async (img) => String(img.bytes[0]), false, () => {}, 2), /any image/);
+});
+
+test("every Ollama call asks to keep the model loaded", async () => {
+  const { OllamaClient } = await import("./ollama.ts");
+  const sent: Record<string, unknown>[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    sent.push(JSON.parse(String(init.body)));
+    return new Response(JSON.stringify({ message: { content: '{"ok": true}' }, done: true }) + "\n");
+  }) as typeof fetch;
+  try {
+    await new OllamaClient("localhost:11434").chatJson("m", "s", "u");
+    await new OllamaClient("http://localhost:11434", null, undefined, -1).chatJson("m", "s", "u");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(sent[0]!.keep_alive, 3600);
+  assert.equal(sent[1]!.keep_alive, -1);
+  assert.equal(sent[0]!.think, false, "thinking is turned off");
+});
+
+test("a server that rejects the think flag is asked again without it", async () => {
+  const { OllamaClient } = await import("./ollama.ts");
+  const sent: Record<string, unknown>[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body));
+    sent.push(body);
+    if ("think" in body) return new Response('{"error":"unknown field think"}', { status: 400 });
+    return new Response(JSON.stringify({ message: { content: '{"ok": true}' }, done: true }) + "\n");
+  }) as typeof fetch;
+  try {
+    const c = new OllamaClient("localhost:11434");
+    assert.deepEqual(await c.chatJson("m", "s", "u"), { ok: true });
+    await c.chatJson("m", "s", "u");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.deepEqual(sent.map((b) => "think" in b), [true, false, false]);
+});
+
+test("a run reports how long each step took", async () => {
+  const lines: string[] = [];
+  await run(
+    { images: [{ name: "01.png", bytes: png(40, 60, [1, 2, 3]) }], config: { characters: [{ name: "Aiko" }] }, mock: true },
+    (l) => lines.push(l),
+  );
+  const times = lines.filter((l) => l.startsWith("[TIME]"));
+  assert.ok(times.some((l) => /^\[TIME\] Vision analysis, 1 images: \d+\.\ds$/.test(l)));
+  assert.ok(times.some((l) => l.startsWith("[TIME] Script generation")));
+  assert.ok(times.at(-1)!.startsWith("[TIME] Total: "));
+});
+
+test("the other model is unloaded before a model is used", async () => {
+  const { OllamaClient } = await import("./ollama.ts");
+  const calls: string[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    const path = new URL(url).pathname;
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    calls.push(`${path} ${body.model ?? ""}${body.keep_alive === 0 ? " unload" : ""}`);
+    if (path === "/api/ps") return new Response(JSON.stringify({ models: [{ name: "big:32b" }, { name: "other-app:7b" }] }));
+    if (path === "/api/generate") return new Response("{}");
+    return new Response(JSON.stringify({ message: { content: "{}" }, done: true }) + "\n");
+  }) as typeof fetch;
+  try {
+    const c = new OllamaClient("http://localhost:11434");
+    c.models = ["eyes:8b", "big:32b"];
+    await Promise.all([c.chatJson("eyes:8b", "s", "u"), c.chatJson("eyes:8b", "s", "u")]);
+    await c.chatJson("big:32b", "s", "u");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  // the 32b model is unloaded once before the vision calls; another app's model is left alone
+  assert.deepEqual(calls.slice(0, 4), ["/api/ps ", "/api/generate big:32b unload", "/api/chat eyes:8b", "/api/chat eyes:8b"]);
+  assert.ok(!calls.some((c) => c.includes("other-app")));
+  assert.deepEqual(calls.slice(4, 6), ["/api/ps ", "/api/chat big:32b"]);
+});
+
+test("a stopped run keeps the images it looked at and the next run carries on", async () => {
+  const images = [
+    { name: "01.png", bytes: png(60, 90, [200, 80, 80]) },
+    { name: "02.png", bytes: png(90, 60, [80, 200, 80]) },
+    { name: "03.png", bytes: png(60, 90, [80, 80, 200]) },
+  ];
+  const config = { characters: [{ name: "Aiko" }] };
+  const saves: { analyses: Record<string, unknown>; who: unknown }[] = [];
+  await run(
+    { images, config, mock: true, cache: { load: async () => null, save: async (v) => void saves.push(JSON.parse(JSON.stringify(v))) } },
+    () => {},
+  );
+  // saved after each image, not only at the end
+  assert.deepEqual(saves.slice(0, 3).map((v) => Object.keys(v.analyses).length), [1, 2, 3]);
+  // pretend the run was stopped after two images
+  const partial = saves[1]!;
+  const lines: string[] = [];
+  await run(
+    { images, config, mock: true, cache: { load: async () => partial as never, save: async () => {} } },
+    (l) => lines.push(l),
+  );
+  assert.ok(lines.some((l) => /vision 2\/3: reusing 2 images/.test(l)));
+  assert.equal(lines.filter((l) => l.startsWith("[TIME] Image ")).length, 1, "only the missing image is looked at");
+});
+
+test("pages whose script can't be read are written again one page at a time", async () => {
+  const { MockClient } = await import("./mock.ts");
+  const { SCRIPT_SCHEMA } = await import("./dialogue.ts");
+  const images = Array.from({ length: 16 }, (_, i) => ({ name: `${String(i + 1).padStart(2, "0")}.png`, bytes: png(60, 90, [i * 15, 80, 80]) }));
+  const cfgIn = { characters: [{ name: "Aiko" }] };
+  const mock = new MockClient(loadConfig(cfgIn));
+  let failed = 0;
+  const client = {
+    checkModels: () => mock.checkModels(),
+    async chatJson(model: string, system: string, user: string, imgs?: string[] | null, schema?: Record<string, unknown> | null) {
+      if (schema === SCRIPT_SCHEMA && failed === 0) {
+        failed++;
+        throw new Error(`Model ${model} did not return valid JSON: broken`);
+      }
+      return mock.chatJson(model, system, user, imgs, schema);
+    },
+  };
+  const lines: string[] = [];
+  const { file } = await run({ images, config: cfgIn, mock: true, client, pagesPerCall: 3 }, (l) => lines.push(l));
+  assert.equal(failed, 1);
+  assert.ok(lines.some((l) => l.includes("one page at a time")));
+  assert.ok(file.doc.pages.some((p) => (p.overlays as unknown[]).length > 0));
+});
+
+test("when the reading order can't be read, the images keep their folder order", async () => {
+  const { MockClient } = await import("./mock.ts");
+  const { ORDER_SCHEMA } = await import("./vision.ts");
+  const images = Array.from({ length: 4 }, (_, i) => ({ name: `0${i + 1}.png`, bytes: png(60, 90, [i * 40, 80, 80]) }));
+  const cfgIn = { characters: [{ name: "Aiko" }] };
+  const mock = new MockClient(loadConfig(cfgIn));
+  const client = {
+    checkModels: () => mock.checkModels(),
+    async chatJson(model: string, system: string, user: string, imgs?: string[] | null, schema?: Record<string, unknown> | null) {
+      if (schema === ORDER_SCHEMA) throw new Error(`Model ${model} ran out of room: its answer was cut off after 9000 characters.`);
+      return mock.chatJson(model, system, user, imgs, schema);
+    },
+  };
+  const lines: string[] = [];
+  const { file } = await run({ images, config: cfgIn, mock: true, client }, (l) => lines.push(l));
+  assert.ok(lines.some((l) => l.startsWith("note: ") && l.includes("reading order")));
+  assert.ok(file.doc.pages.flatMap((p) => p.panels).length > 0);
+});
+
+test("an answer cut off by a full context is retried, then reported as such", async () => {
+  const { OllamaClient, AnswerCutOff } = await import("./ollama.ts");
+  let calls = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    calls++;
+    return new Response(JSON.stringify({ message: { content: "Sure! Here is the script for the pages you asked for, starting with" }, done: true, done_reason: "length" }) + "\n");
+  }) as typeof fetch;
+  try {
+    await assert.rejects(new OllamaClient("localhost:11434").chatJson("m", "s", "u"), AnswerCutOff);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  // tried again (warmer, with a repeat penalty) before giving up, never sent back for repair
+  assert.equal(calls, 3);
+});
+
+test("after Ollama runs out of memory the request is retried, one at a time", async () => {
+  const { OllamaClient } = await import("./ollama.ts");
+  const calls: string[] = [];
+  let failures = 1;
+  let live = 0;
+  let most = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    const path = new URL(url).pathname;
+    const body = init?.body ? JSON.parse(String(init.body)) : {};
+    calls.push(`${path}${body.keep_alive === 0 ? " unload" : ""}`);
+    if (path !== "/api/chat") return new Response(JSON.stringify({ models: [] }));
+    live++;
+    most = Math.max(most, live);
+    await new Promise((r) => setTimeout(r, 5));
+    live--;
+    if (failures-- > 0) return new Response('{"error":"llama runner process has terminated: CUDA error: out of memory"}', { status: 500 });
+    return new Response(JSON.stringify({ message: { content: '{"ok": true}' }, done: true }) + "\n");
+  }) as typeof fetch;
+  const notes: string[] = [];
+  try {
+    const c = new OllamaClient("localhost:11434");
+    c.onNote = (n) => notes.push(n);
+    const first = c.chatJson("m", "s", "u");
+    await new Promise((r) => setTimeout(r, 1));
+    const rest = await Promise.all([c.chatJson("m", "s", "u"), c.chatJson("m", "s", "u")]);
+    assert.deepEqual(await first, { ok: true });
+    assert.deepEqual(rest, [{ ok: true }, { ok: true }]);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.ok(calls.includes("/api/generate unload"), "memory is freed before the retry");
+  assert.ok(notes.some((n) => n.includes("one request at a time")));
+});
+
+test("the vision model gets a smaller context when the request fits", async () => {
+  const { OllamaClient } = await import("./ollama.ts");
+  const sent: Record<string, unknown>[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    sent.push(JSON.parse(String(init.body)));
+    return new Response(JSON.stringify({ message: { content: "{}" }, done: true }) + "\n");
+  }) as typeof fetch;
+  try {
+    const c = new OllamaClient("localhost:11434", 16384);
+    c.smallCtx = { eyes: 8192 };
+    await c.chatJson("eyes", "s", "u", ["img"]);
+    await c.chatJson("eyes", "s", "x".repeat(30000), ["img"]);
+    await c.chatJson("eyes", "s", "u"); // text only, like the reading order: full context, no answer cap
+    await c.chatJson("pen", "s", "u");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.deepEqual(sent.map((b) => (b.options as { num_ctx: number }).num_ctx), [8192, 16384, 16384, 16384]);
+  assert.deepEqual(sent.map((b) => (b.options as { num_predict?: number }).num_predict), [3072, 3072, undefined, undefined]);
+});
+
+test("faces that call for it get a chibi sticker, sized to the head and clear of bubbles", async () => {
+  const { MockClient } = await import("./mock.ts");
+  const { ANALYSIS_SCHEMA } = await import("./vision.ts");
+  const { SCRIPT_SCHEMA } = await import("./dialogue.ts");
+  const images = Array.from({ length: 4 }, (_, i) => ({ name: `0${i + 1}.png`, bytes: png(60, 90, [i * 50, 80, 80]) }));
+  const cfgIn = { characters: [{ name: "Aiko" }] };
+  const mock = new MockClient(loadConfig(cfgIn));
+  const client = {
+    checkModels: () => mock.checkModels(),
+    async chatJson(model: string, system: string, user: string, imgs?: string[] | null, schema?: Record<string, unknown> | null) {
+      const out = (await mock.chatJson(model, system, user, imgs, schema)) as { characters?: { expression: string }[] };
+      if (schema === ANALYSIS_SCHEMA) for (const c of out.characters ?? []) c.expression = "nervous, sweating";
+      if (schema === SCRIPT_SCHEMA && nervousLines) {
+        for (const l of (out as unknown as { lines: { text: string; speaker: string; kind: string }[] }).lines) {
+          Object.assign(l, { speaker: "Aiko", kind: "speech", text: "U-um… w-wait, I can explain!" });
+        }
+      }
+      return out;
+    },
+  };
+  let nervousLines = false;
+  // a nervous face alone is not enough: the dialogue has to call for it too
+  const calm = await run({ images, config: cfgIn, mock: true, client, stickers: true }, () => {});
+  assert.ok(!calm.file.doc.pages.some((p) => (p.overlays as { kind: string }[]).some((o) => o.kind === "sticker")));
+  nervousLines = true;
+  const lines: string[] = [];
+  const { file } = await run({ images, config: cfgIn, mock: true, client, stickers: true }, (l) => lines.push(l));
+  const all = file.doc.pages.flatMap((p) => p.overlays as { kind: string; src?: string; x: number; y: number; w: number; h: number }[]);
+  const stickers = all.filter((o) => o.kind === "sticker");
+  assert.ok(stickers.length >= 1, lines.find((l) => l.startsWith("stickers")));
+  assert.ok(stickers.every((s) => s.src === "/stickers/anime/sweat.webp"));
+  assert.ok(stickers.every((s) => s.w > 0 && s.w < 30 && s.x >= 0 && s.x + s.w <= 100 && s.y >= 0 && s.y + s.h <= 100));
+  // at most one per page
+  for (const p of file.doc.pages) assert.ok((p.overlays as { kind: string }[]).filter((o) => o.kind === "sticker").length <= 1);
+  // off unless asked for
+  const plain = await run({ images, config: cfgIn, mock: true, client }, () => {});
+  assert.ok(!plain.file.doc.pages.some((p) => (p.overlays as { kind: string }[]).some((o) => o.kind === "sticker")));
+});
+
+test("a model stuck repeating itself is asked again, warmer and with a repeat penalty", async () => {
+  const { OllamaClient } = await import("./ollama.ts");
+  const sent: Record<string, unknown>[] = [];
+  let fails = 1;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    sent.push(JSON.parse(String(init.body)));
+    if (fails-- > 0) return new Response('{"error":"prediction aborted, token repeat limit reached"}', { status: 500 });
+    return new Response(JSON.stringify({ message: { content: '{"ok": true}' }, done: true }) + "\n");
+  }) as typeof fetch;
+  try {
+    assert.deepEqual(await new OllamaClient("localhost:11434").chatJson("m", "s", "u", null, null, 0.2), { ok: true });
+    fails = 9;
+    await assert.rejects(new OllamaClient("localhost:11434").chatJson("m", "s", "u"), /stuck repeating/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  const o = sent[1]!.options as { temperature: number; repeat_penalty?: number };
+  assert.equal((sent[0]!.options as { repeat_penalty?: number }).repeat_penalty, undefined);
+  assert.ok(o.temperature > 0.2 && (o.repeat_penalty ?? 0) > 1);
+});
+
+test("open-ended lists in the answer format get a maximum", async () => {
+  const { boundLists } = await import("./ollama.ts");
+  const { ANALYSIS_SCHEMA } = await import("./vision.ts");
+  const { SCRIPT_SCHEMA } = await import("./dialogue.ts");
+  const v = boundLists(ANALYSIS_SCHEMA) as any;
+  assert.equal(v.properties.characters.maxItems, 8);
+  assert.equal(v.properties.characters.items.properties.head_box.maxItems, 4);
+  assert.equal(v.properties.empty_regions.maxItems, 8);
+  assert.equal(v.properties.empty_regions.items.maxItems, 4);
+  assert.equal((boundLists(SCRIPT_SCHEMA) as any).properties.lines.maxItems, undefined, "script length is never cut");
+  assert.equal((ANALYSIS_SCHEMA as any).properties.characters.maxItems, undefined, "the original is left alone");
+});
+
+test("a cut-off answer that can be patched up is still asked again, fresh", async () => {
+  const { OllamaClient, boundLists } = await import("./ollama.ts");
+  const { ANALYSIS_SCHEMA } = await import("./vision.ts");
+  const sent: Record<string, unknown>[] = [];
+  let n = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    sent.push(JSON.parse(String(init.body)));
+    n++;
+    const body = n === 1 ? { message: { content: '{"mood": "calm calm calm calm' }, done: true, done_reason: "length" } : { message: { content: '{"mood": "calm"}' }, done: true, done_reason: "stop" };
+    return new Response(JSON.stringify(body) + "\n");
+  }) as typeof fetch;
+  try {
+    assert.deepEqual(await new OllamaClient("localhost:11434").chatJson("m", "s", "u"), { mood: "calm" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(sent.length, 2);
+  assert.equal((sent[1]!.messages as unknown[]).length, 2, "no repair turn");
+  assert.equal((boundLists(ANALYSIS_SCHEMA) as any).properties.scene_summary.maxLength, 700);
+});

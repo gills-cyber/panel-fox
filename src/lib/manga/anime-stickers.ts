@@ -7,7 +7,7 @@ export type AnimeSticker = {
   h?: number;
 };
 
-export const ANIME_STICKER_GROUP = "Anime stickers";
+export const ANIME_STICKER_GROUP = "Chibi stickers";
 
 export const ANIME_STICKERS: AnimeSticker[] = [
   {
@@ -23,30 +23,30 @@ export const ANIME_STICKERS: AnimeSticker[] = [
     label: "Food steam",
     src: "/stickers/anime/wisps.webp",
     tags: "bowl ramen hot rising ribbons vapor",
-    w: 20,
-    h: 30,
+    w: 17,
+    h: 35,
   },
   {
     id: "anime-fog",
     label: "Fog bank",
     src: "/stickers/anime/fog.webp",
     tags: "shower steam room mist bath onsen",
-    w: 46,
-    h: 18,
+    w: 47,
+    h: 17,
   },
   {
     id: "anime-breath",
     label: "Breath puffs",
     src: "/stickers/anime/breath.webp",
     tags: "mouth steam haa puff warm",
-    w: 22,
-    h: 18,
+    w: 25,
+    h: 16,
   },
   {
     id: "anime-chill",
-    label: "Cold breath",
+    label: "Chills",
     src: "/stickers/anime/chill.webp",
-    tags: "winter fog icy puff snow",
+    tags: "cold shiver gloom winter icy snow scared",
     w: 18,
     h: 26,
   },
@@ -63,8 +63,8 @@ export const ANIME_STICKERS: AnimeSticker[] = [
     label: "Heat aura",
     src: "/stickers/anime/aura.webp",
     tags: "shimmer hot wavy haze blush",
-    w: 18,
-    h: 30,
+    w: 19,
+    h: 29,
   },
   {
     id: "anime-sparkle",
@@ -87,32 +87,32 @@ export const ANIME_STICKERS: AnimeSticker[] = [
     label: "Heart",
     src: "/stickers/anime/heart.webp",
     tags: "love pink glossy",
-    w: 18,
-    h: 16,
+    w: 17,
+    h: 17,
   },
   {
     id: "anime-blush",
     label: "Blush",
     src: "/stickers/anime/blush.webp",
     tags: "cheeks flush embarrassed",
-    w: 30,
-    h: 10,
+    w: 37,
+    h: 8,
   },
   {
     id: "anime-sweat",
     label: "Sweat drop",
     src: "/stickers/anime/sweat.webp",
     tags: "nervous drop",
-    w: 12,
-    h: 24,
+    w: 15,
+    h: 19,
   },
   {
     id: "anime-tear",
     label: "Tear",
     src: "/stickers/anime/tear.webp",
     tags: "cry drop shiny",
-    w: 14,
-    h: 24,
+    w: 15,
+    h: 23,
   },
   {
     id: "anime-vein",
@@ -127,16 +127,16 @@ export const ANIME_STICKERS: AnimeSticker[] = [
     label: "Petals",
     src: "/stickers/anime/petals.webp",
     tags: "sakura cherry blossom",
-    w: 24,
-    h: 24,
+    w: 22,
+    h: 26,
   },
   {
     id: "anime-flower",
     label: "Flower",
     src: "/stickers/anime/flower.webp",
     tags: "happy bloom cute",
-    w: 16,
-    h: 16,
+    w: 14,
+    h: 18,
   },
   {
     id: "anime-impact",
@@ -151,24 +151,24 @@ export const ANIME_STICKERS: AnimeSticker[] = [
     label: "Shock lines",
     src: "/stickers/anime/shock.webp",
     tags: "startle surprise hatch",
-    w: 18,
-    h: 22,
+    w: 20,
+    h: 20,
   },
   {
     id: "anime-zzz",
     label: "Sleep",
     src: "/stickers/anime/zzz.webp",
     tags: "zzz sleepy snore",
-    w: 16,
-    h: 24,
+    w: 22,
+    h: 18,
   },
   {
     id: "anime-notes",
     label: "Notes",
     src: "/stickers/anime/notes.webp",
     tags: "music song humming",
-    w: 20,
-    h: 16,
+    w: 16,
+    h: 20,
   },
 ];
 
@@ -180,4 +180,9 @@ export function animeStickerBySrc(src?: string): AnimeSticker | undefined {
 export function animeStickerSize(src?: string): { w: number; h: number } {
   const hit = animeStickerBySrc(src);
   return { w: hit?.w ?? 22, h: hit?.h ?? 24 };
+}
+
+/** True for one of the built-in chibi sticker images. */
+export function isAnimeStickerSrc(src?: string): boolean {
+  return Boolean(src && ANIME_STICKERS.some((s) => s.src === src));
 }

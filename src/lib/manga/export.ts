@@ -346,11 +346,20 @@ async function paintOverlays(
         const scale = Math.min(w / iw, h / ih);
         const dw = iw * scale;
         const dh = ih * scale;
-        ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
         if (tintsRaster(overlay.color)) {
-          ctx.globalCompositeOperation = "source-atop";
-          ctx.fillStyle = overlay.color;
-          ctx.fillRect(-dw / 2, -dh / 2, dw, dh);
+          // tint on a separate canvas, so only the mark's own shape takes the colour
+          const k = Math.max(1, Math.min(4, Math.ceil(Math.max(dw / iw, dh / ih) * 2)));
+          const off = document.createElement("canvas");
+          off.width = Math.max(1, Math.round(dw * k));
+          off.height = Math.max(1, Math.round(dh * k));
+          const o = off.getContext("2d")!;
+          o.drawImage(img, 0, 0, off.width, off.height);
+          o.globalCompositeOperation = "source-in";
+          o.fillStyle = overlay.color;
+          o.fillRect(0, 0, off.width, off.height);
+          ctx.drawImage(off, -dw / 2, -dh / 2, dw, dh);
+        } else {
+          ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
         }
         ctx.restore();
       } catch {
