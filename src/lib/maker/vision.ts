@@ -468,7 +468,7 @@ export async function analyseImages(
   log: (s: string) => void = () => {},
   parallel = 1,
   /** images already looked at (a stopped run): reused, not sent again; `onEach` hears each new result */
-  more: { known?: Map<string, Analysis>; onEach?: (name: string, a: Analysis) => void } = {},
+  more: { known?: Map<string, Analysis>; onEach?: (name: string, a: Analysis) => void; strict?: boolean } = {},
 ): Promise<Map<string, Analysis>> {
   const refs = useRefs ? cfg.characters.filter((c) => c.reference) : [];
   const refB64: string[] = [];
@@ -481,6 +481,7 @@ export async function analyseImages(
   let next = 0;
   let finished = 0;
   const fail: { first: { i: number; e: unknown } | null } = { first: null };
+  const skipped: string[] = [];
   images.forEach((img, i) => {
     const a = more.known?.get(img.name);
     if (a) out[i] = a;
@@ -503,6 +504,13 @@ export async function analyseImages(
         out[i] = res;
         more.onEach?.(img.name, res);
       } catch (e) {
+        // an image the model keeps looping on is left out, rather than failing the chapter
+        if (e instanceof Error && /ran out of room|stuck repeating|did not return valid JSON/.test(e.message) && !more.strict) {
+          skipped.push(img.name);
+          finished++;
+          log(`  vision ${finished}/${n}: ${img.name} (skipped)`);
+          continue;
+        }
         // another image may have failed while this one was waiting
         const prev = fail.first as { i: number; e: unknown } | null;
         if (!prev || i < prev.i) fail.first = { i, e };
@@ -515,8 +523,14 @@ export async function analyseImages(
   };
   await Promise.all(Array.from({ length: Math.max(1, Math.min(Math.trunc(parallel) || 1, n)) }, worker));
   if (fail.first) throw fail.first.e;
+  if (skipped.length) {
+    if (skipped.length === n) throw new Error(`Model ${model} did not return valid JSON for any image`);
+    log(`note: Left out ${skipped.length === 1 ? "1 image" : `${skipped.length} images`} the vision model couldn’t describe: ${skipped.join(", ")}.`);
+  }
   const results = new Map<string, Analysis>();
-  images.forEach((img, i) => results.set(img.name, out[i]!));
+  images.forEach((img, i) => {
+    if (out[i]) results.set(img.name, out[i]!);
+  });
   return results;
 }
 

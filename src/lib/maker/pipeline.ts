@@ -206,7 +206,8 @@ export async function run(opt: RunOptions, log: (s: string) => void = () => {}):
 
   // 2a. story-first selection
   let selection: SelectionInfo | null = null;
-  let kept = images;
+  // images the vision model couldn't describe were left out
+  let kept = images.filter((p) => analyses!.has(p.name));
   if (opt.selectImages ?? true) {
     say("story-first selection");
     const rough = await outline(client, dialogueModel, cfg, analyses, say);

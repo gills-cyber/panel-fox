@@ -132,6 +132,29 @@ test("the earliest failing image is the one reported", async () => {
   await assert.rejects(analyseImages(client, "m", cfg, images, async (img) => String(img.bytes[0]), false, () => {}, 4), /bad 1/);
 });
 
+test("an image the model keeps looping on is left out, and the rest carry on", async () => {
+  const { analyseImages } = await import("./vision.ts");
+  const cfg = loadConfig({ characters: [{ name: "Aiko" }] });
+  const images = Array.from({ length: 3 }, (_, i) => ({ name: `${i + 1}.png`, bytes: new Uint8Array([i]) }));
+  const client = {
+    async checkModels() {
+      return [];
+    },
+    async chatJson(_m: string, _s: string, _u: string, imgs: string[] | null) {
+      const which = Number(imgs!.at(-1));
+      if (which === 1) throw new Error("Model m ran out of room for its answer");
+      return { scene_summary: `scene ${which}`, characters: [] };
+    },
+  };
+  const lines: string[] = [];
+  const got = await analyseImages(client, "m", cfg, images, async (img) => String(img.bytes[0]), false, (s) => lines.push(s), 2);
+  assert.deepEqual(Array.from(got.keys()), ["1.png", "3.png"]);
+  assert.ok(lines.some((l) => l.startsWith("note: ") && l.includes("2.png")));
+  // when every image fails, the chapter still stops with a clear error
+  const none = { ...client, async chatJson() { throw new Error("Model m got stuck repeating itself"); } };
+  await assert.rejects(analyseImages(none, "m", cfg, images, async (img) => String(img.bytes[0]), false, () => {}, 2), /any image/);
+});
+
 test("every Ollama call asks to keep the model loaded", async () => {
   const { OllamaClient } = await import("./ollama.ts");
   const sent: Record<string, unknown>[] = [];

@@ -354,7 +354,8 @@ export class OllamaClient implements ModelClient {
         const tokens = (system.length + user.length) / 3 + (images?.length ?? 0) * 1300 + 2000;
         if (tokens < small * 0.8) options.num_ctx = small;
         // one image's answer is short; a longer one is a loop, so stop it early
-        options.num_predict = 3072;
+        // (only for image calls: the reading order lists every image and can be long)
+        if (images?.length) options.num_predict = 3072;
       }
       let content: string;
       let cut: boolean;
