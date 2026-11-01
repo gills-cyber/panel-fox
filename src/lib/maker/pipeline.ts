@@ -11,7 +11,7 @@ import { MockClient } from "./mock.ts";
 import { OllamaClient, type ModelClient } from "./ollama.ts";
 import { pyInt, sortedBy } from "./py.ts";
 import { outline, outlineNotes, select, type SelectionInfo } from "./selection.ts";
-import { analyseImages, planOrder, resolvePeople, secs, type Analysis, type Beat } from "./vision.ts";
+import { analyseImages, planOrder, resolvePeople, secs, validateOrder, type Analysis, type Beat } from "./vision.ts";
 
 export const DEFAULT_VISION = "huihui_ai/qwen3-vl-abliterated:8b-instruct";
 export const DEFAULT_DIALOGUE = "huihui_ai/qwen2.5-coder-abliterate:32b";
@@ -232,7 +232,14 @@ export async function run(opt: RunOptions, log: (s: string) => void = () => {}):
     importance = new Map(Array.from(analyses, ([n, a]) => [n, a.importance]));
     storyNotes = context;
   } else {
-    [order, importance, storyNotes] = await planOrder(client, visionModel, analyses, say, context, beats);
+    try {
+      [order, importance, storyNotes] = await planOrder(client, visionModel, analyses, say, context, beats);
+    } catch (e) {
+      // the reading order is a nicety: when the model can't give one, keep the folder's order
+      if (!(e instanceof Error && /ran out of room|stuck repeating|did not return valid JSON/.test(e.message))) throw e;
+      say("note: The vision model couldn’t plan a reading order, so the images keep their folder order.");
+      [order, importance, storyNotes] = validateOrder(null, Array.from(analyses.keys()), analyses);
+    }
     if (context) storyNotes = `${context} ${storyNotes}`.trim();
     timed("Reading order");
   }

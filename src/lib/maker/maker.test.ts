@@ -281,6 +281,25 @@ test("pages whose script can't be read are written again one page at a time", as
   assert.ok(file.doc.pages.some((p) => (p.overlays as unknown[]).length > 0));
 });
 
+test("when the reading order can't be read, the images keep their folder order", async () => {
+  const { MockClient } = await import("./mock.ts");
+  const { ORDER_SCHEMA } = await import("./vision.ts");
+  const images = Array.from({ length: 4 }, (_, i) => ({ name: `0${i + 1}.png`, bytes: png(60, 90, [i * 40, 80, 80]) }));
+  const cfgIn = { characters: [{ name: "Aiko" }] };
+  const mock = new MockClient(loadConfig(cfgIn));
+  const client = {
+    checkModels: () => mock.checkModels(),
+    async chatJson(model: string, system: string, user: string, imgs?: string[] | null, schema?: Record<string, unknown> | null) {
+      if (schema === ORDER_SCHEMA) throw new Error(`Model ${model} ran out of room: its answer was cut off after 9000 characters.`);
+      return mock.chatJson(model, system, user, imgs, schema);
+    },
+  };
+  const lines: string[] = [];
+  const { file } = await run({ images, config: cfgIn, mock: true, client }, (l) => lines.push(l));
+  assert.ok(lines.some((l) => l.startsWith("note: ") && l.includes("reading order")));
+  assert.ok(file.doc.pages.flatMap((p) => p.panels).length > 0);
+});
+
 test("an answer cut off by a full context is retried, then reported as such", async () => {
   const { OllamaClient, AnswerCutOff } = await import("./ollama.ts");
   let calls = 0;
@@ -345,12 +364,14 @@ test("the vision model gets a smaller context when the request fits", async () =
     const c = new OllamaClient("localhost:11434", 16384);
     c.smallCtx = { eyes: 8192 };
     await c.chatJson("eyes", "s", "u", ["img"]);
-    await c.chatJson("eyes", "s", "x".repeat(30000));
+    await c.chatJson("eyes", "s", "x".repeat(30000), ["img"]);
+    await c.chatJson("eyes", "s", "u"); // text only, like the reading order: full context, no answer cap
     await c.chatJson("pen", "s", "u");
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.deepEqual(sent.map((b) => (b.options as { num_ctx: number }).num_ctx), [8192, 16384, 16384]);
+  assert.deepEqual(sent.map((b) => (b.options as { num_ctx: number }).num_ctx), [8192, 16384, 16384, 16384]);
+  assert.deepEqual(sent.map((b) => (b.options as { num_predict?: number }).num_predict), [3072, 3072, undefined, undefined]);
 });
 
 test("faces that call for it get a chibi sticker, sized to the head and clear of bubbles", async () => {

@@ -52,6 +52,7 @@ const LIST_CAPS: Record<string, number> = { characters: 8, empty_regions: 8, reg
 const TEXT_CAPS: Record<string, number> = {
   name: 80, pose: 200, action: 200, expression: 200, clothing_state: 200,
   setting: 300, scene_summary: 700, mood: 150, importance_reason: 300, focus_label: 120, label: 120,
+  story_notes: 800,
 };
 export function boundLists(schema: Record<string, unknown>, key = ""): Record<string, unknown> {
   const out: Record<string, unknown> = { ...schema };
@@ -348,14 +349,15 @@ export class OllamaClient implements ModelClient {
         ? { temperature: Math.min(1.1, temperature + 0.25 * looped), repeat_penalty: 1.05 + 0.05 * looped, repeat_last_n: 128 }
         : { temperature };
       if (this.numCtx) options.num_ctx = this.numCtx;
-      // the vision model gets a smaller context when the request fits: much less graphics memory
+      // the vision model gets a smaller context for one image, when the request fits: much
+      // less graphics memory. Text-only calls (the reading order lists every image and can
+      // answer at length) keep the full context.
       const small = this.smallCtx[model];
-      if (small && this.numCtx && small < this.numCtx) {
+      if (small && this.numCtx && small < this.numCtx && images?.length) {
         const tokens = (system.length + user.length) / 3 + (images?.length ?? 0) * 1300 + 2000;
         if (tokens < small * 0.8) options.num_ctx = small;
         // one image's answer is short; a longer one is a loop, so stop it early
-        // (only for image calls: the reading order lists every image and can be long)
-        if (images?.length) options.num_predict = 3072;
+        options.num_predict = 3072;
       }
       let content: string;
       let cut: boolean;
