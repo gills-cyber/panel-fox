@@ -42,6 +42,28 @@ export function isLocalHost(raw: string): boolean {
   return name === "localhost" || name === "127.0.0.1" || name === "[::1]" || name.endsWith(".localhost");
 }
 
+/**
+ * Give the open-ended lists in a JSON schema a sensible maximum, so a small model
+ * held to the format has to stop instead of adding near-identical entries until
+ * Ollama aborts it for repeating ("token repeat limit reached").
+ */
+const LIST_CAPS: Record<string, number> = { characters: 8, empty_regions: 8, regions: 12, art_text: 12, lines: 80 };
+export function boundLists(schema: Record<string, unknown>, key = ""): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...schema };
+  if (out.type === "array" && out.maxItems === undefined) {
+    const items = out.items as Record<string, unknown> | undefined;
+    if (items?.type === "number" || items?.type === "integer") out.maxItems = 4; // a box or a point
+    else if (LIST_CAPS[key]) out.maxItems = LIST_CAPS[key];
+  }
+  if (out.items && typeof out.items === "object") out.items = boundLists(out.items as Record<string, unknown>);
+  if (out.properties && typeof out.properties === "object") {
+    out.properties = Object.fromEntries(
+      Object.entries(out.properties as Record<string, Record<string, unknown>>).map(([k, v]) => [k, boundLists(v, k)]),
+    );
+  }
+  return out;
+}
+
 export class OllamaClient implements ModelClient {
   host: string;
   numCtx: number | null;
@@ -311,7 +333,7 @@ export class OllamaClient implements ModelClient {
     const userMsg: Record<string, unknown> = { role: "user", content: user };
     if (images && images.length) userMsg.images = images;
     messages.push(userMsg);
-    let fmt: unknown = schema ?? "json";
+    let fmt: unknown = schema ? boundLists(schema) : "json";
     let lastErr: unknown = null;
     let looped = 0; // times the model got stuck repeating itself
     for (let attempt = 0; attempt <= retries; attempt++) {
