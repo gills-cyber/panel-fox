@@ -258,7 +258,7 @@ test("pages whose script can't be read are written again one page at a time", as
   assert.ok(file.doc.pages.some((p) => (p.overlays as unknown[]).length > 0));
 });
 
-test("an answer cut off by a full context is reported as such, not asked again", async () => {
+test("an answer cut off by a full context is retried, then reported as such", async () => {
   const { OllamaClient, AnswerCutOff } = await import("./ollama.ts");
   let calls = 0;
   const realFetch = globalThis.fetch;
@@ -271,7 +271,8 @@ test("an answer cut off by a full context is reported as such, not asked again",
   } finally {
     globalThis.fetch = realFetch;
   }
-  assert.equal(calls, 1);
+  // tried again (warmer, with a repeat penalty) before giving up, never sent back for repair
+  assert.equal(calls, 3);
 });
 
 test("after Ollama runs out of memory the request is retried, one at a time", async () => {

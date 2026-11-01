@@ -344,7 +344,7 @@ export class OllamaClient implements ModelClient {
       if (this.numCtx) options.num_ctx = this.numCtx;
       // the vision model gets a smaller context when the request fits: much less graphics memory
       const small = this.smallCtx[model];
-      if (small && this.numCtx && small < this.numCtx) {
+      if (small && this.numCtx && small < this.numCtx && !looped) {
         const tokens = (system.length + user.length) / 3 + (images?.length ?? 0) * 1300 + 2000;
         if (tokens < small * 0.8) options.num_ctx = small;
       }
@@ -372,7 +372,15 @@ export class OllamaClient implements ModelClient {
       } catch (e) {
         if (!(e instanceof JSONRepairError)) throw e;
         // asking again with the cut-off answer attached would only make it longer
-        if (cut) throw new AnswerCutOff(`Model ${model} ran out of room: its answer was cut off after ${content.length} characters.`);
+        if (cut) {
+          // an answer that runs until the room is full is almost always a loop:
+          // ask again, warmer, with a repeat penalty and the full context
+          looped++;
+          lastErr = e;
+          console.warn(`[maker] ${model} ran out of room (try ${attempt + 1}):`, content.slice(-600));
+          if (attempt < retries) continue;
+          throw new AnswerCutOff(`Model ${model} ran out of room: its answer was cut off after ${content.length} characters.`);
+        }
         lastErr = e;
         console.warn(`[maker] ${model} gave unreadable JSON (try ${attempt + 1}):`, content.slice(0, 2000));
         messages = [
