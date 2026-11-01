@@ -317,7 +317,7 @@ export class OllamaClient implements ModelClient {
     for (let attempt = 0; attempt <= retries; attempt++) {
       // after a repetition loop, ask again a little warmer and with a penalty for repeating
       const options: Record<string, unknown> = looped
-        ? { temperature: Math.min(1.1, temperature + 0.25 * looped), repeat_penalty: 1.1 + 0.1 * looped, repeat_last_n: 256 }
+        ? { temperature: Math.min(1.1, temperature + 0.25 * looped), repeat_penalty: 1.05 + 0.05 * looped, repeat_last_n: 128 }
         : { temperature };
       if (this.numCtx) options.num_ctx = this.numCtx;
       // the vision model gets a smaller context when the request fits: much less graphics memory
