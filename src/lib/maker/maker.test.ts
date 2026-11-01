@@ -403,3 +403,25 @@ test("open-ended lists in the answer format get a maximum", async () => {
   assert.equal((boundLists(SCRIPT_SCHEMA) as any).properties.lines.maxItems, undefined, "script length is never cut");
   assert.equal((ANALYSIS_SCHEMA as any).properties.characters.maxItems, undefined, "the original is left alone");
 });
+
+test("a cut-off answer that can be patched up is still asked again, fresh", async () => {
+  const { OllamaClient, boundLists } = await import("./ollama.ts");
+  const { ANALYSIS_SCHEMA } = await import("./vision.ts");
+  const sent: Record<string, unknown>[] = [];
+  let n = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    sent.push(JSON.parse(String(init.body)));
+    n++;
+    const body = n === 1 ? { message: { content: '{"mood": "calm calm calm calm' }, done: true, done_reason: "length" } : { message: { content: '{"mood": "calm"}' }, done: true, done_reason: "stop" };
+    return new Response(JSON.stringify(body) + "\n");
+  }) as typeof fetch;
+  try {
+    assert.deepEqual(await new OllamaClient("localhost:11434").chatJson("m", "s", "u"), { mood: "calm" });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(sent.length, 2);
+  assert.equal((sent[1]!.messages as unknown[]).length, 2, "no repair turn");
+  assert.equal((boundLists(ANALYSIS_SCHEMA) as any).properties.scene_summary.maxLength, 700);
+});

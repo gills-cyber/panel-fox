@@ -48,6 +48,11 @@ export function isLocalHost(raw: string): boolean {
  * Ollama aborts it for repeating ("token repeat limit reached").
  */
 const LIST_CAPS: Record<string, number> = { characters: 8, empty_regions: 8, regions: 12, art_text: 12 };
+/** The short descriptions in the image answer, where a loop would otherwise run on inside the text. */
+const TEXT_CAPS: Record<string, number> = {
+  name: 80, pose: 200, action: 200, expression: 200, clothing_state: 200,
+  setting: 300, scene_summary: 700, mood: 150, importance_reason: 300, focus_label: 120, label: 120,
+};
 export function boundLists(schema: Record<string, unknown>, key = ""): Record<string, unknown> {
   const out: Record<string, unknown> = { ...schema };
   if (out.type === "array" && out.maxItems === undefined) {
@@ -55,6 +60,7 @@ export function boundLists(schema: Record<string, unknown>, key = ""): Record<st
     if (items?.type === "number" || items?.type === "integer") out.maxItems = 4; // a box or a point
     else if (LIST_CAPS[key]) out.maxItems = LIST_CAPS[key];
   }
+  if (out.type === "string" && !out.enum && out.maxLength === undefined && TEXT_CAPS[key]) out.maxLength = TEXT_CAPS[key];
   if (out.items && typeof out.items === "object") out.items = boundLists(out.items as Record<string, unknown>);
   if (out.properties && typeof out.properties === "object") {
     out.properties = Object.fromEntries(
@@ -344,9 +350,11 @@ export class OllamaClient implements ModelClient {
       if (this.numCtx) options.num_ctx = this.numCtx;
       // the vision model gets a smaller context when the request fits: much less graphics memory
       const small = this.smallCtx[model];
-      if (small && this.numCtx && small < this.numCtx && !looped) {
+      if (small && this.numCtx && small < this.numCtx) {
         const tokens = (system.length + user.length) / 3 + (images?.length ?? 0) * 1300 + 2000;
         if (tokens < small * 0.8) options.num_ctx = small;
+        // one image's answer is short; a longer one is a loop, so stop it early
+        options.num_predict = 3072;
       }
       let content: string;
       let cut: boolean;
@@ -362,33 +370,40 @@ export class OllamaClient implements ModelClient {
         if (e instanceof OllamaError && /repeat limit|repetition/i.test(e.message)) {
           looped++;
           lastErr = e;
+          messages = messages.slice(0, 2); // a fresh try, without an earlier repair turn
           if (attempt < retries) continue;
           throw new OllamaError(`Model ${model} got stuck repeating itself (${e.message.replace(/^Ollama HTTP \d+ on \S+: /, "")})`);
         }
         throw e;
       }
+      let parsed: unknown;
+      let parseErr: unknown = null;
       try {
-        return parseJsonLoose(content);
+        parsed = parseJsonLoose(content);
       } catch (e) {
         if (!(e instanceof JSONRepairError)) throw e;
-        // asking again with the cut-off answer attached would only make it longer
-        if (cut) {
-          // an answer that runs until the room is full is almost always a loop:
-          // ask again, warmer, with a repeat penalty and the full context
-          looped++;
-          lastErr = e;
-          console.warn(`[maker] ${model} ran out of room (try ${attempt + 1}):`, content.slice(-600));
-          if (attempt < retries) continue;
-          throw new AnswerCutOff(`Model ${model} ran out of room: its answer was cut off after ${content.length} characters.`);
-        }
-        lastErr = e;
-        console.warn(`[maker] ${model} gave unreadable JSON (try ${attempt + 1}):`, content.slice(0, 2000));
-        messages = [
-          ...messages.slice(0, 2),
-          { role: "assistant", content },
-          { role: "user", content: "That was not valid JSON. Reply again with ONLY the corrected JSON object, nothing else." },
-        ];
+        parseErr = e;
       }
+      // An answer that runs until it is stopped for length is almost always a loop, even
+      // when the cut JSON can be patched up: ask again, fresh, warmer and with a repeat
+      // penalty. On the last try a patched-up answer is better than none.
+      if (cut) {
+        looped++;
+        lastErr = parseErr ?? new Error("answer cut off");
+        console.warn(`[maker] ${model} ran out of room (try ${attempt + 1}):`, content.slice(-600));
+        messages = messages.slice(0, 2);
+        if (attempt < retries) continue;
+        if (!parseErr) return parsed;
+        throw new AnswerCutOff(`Model ${model} ran out of room: its answer was cut off after ${content.length} characters.`);
+      }
+      if (!parseErr) return parsed;
+      lastErr = parseErr;
+      console.warn(`[maker] ${model} gave unreadable JSON (try ${attempt + 1}):`, content.slice(0, 2000));
+      messages = [
+        ...messages.slice(0, 2),
+        { role: "assistant", content },
+        { role: "user", content: "That was not valid JSON. Reply again with ONLY the corrected JSON object, nothing else." },
+      ];
     }
     throw new OllamaError(`Model ${model} did not return valid JSON: ${lastErr instanceof Error ? lastErr.message : lastErr}`);
   }
